@@ -7059,7 +7059,8 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
     }
     return { x0, x1, y0, y1, w: x1 - x0 + 1, h: y1 - y0 + 1, cx: (x0 + x1) / 2, mid, count: n };
   }
-  function validateFrames({ timeline: timeline2, F, pixelsOf: pixelsOf2, rows = null, layout: layout2 = null, drift = 4, measure = null }) {
+  // sets: one animation drawn in several directions, [{ name, rows: [{ dir, row }], missing: [dir] }]
+  function validateFrames({ timeline: timeline2, F, pixelsOf: pixelsOf2, rows = null, layout: layout2 = null, drift = 4, measure = null, sets = null }) {
     const findings = [], frames = [];
     const add = (level, code, anim2, frame, message) => findings.push({ level, code, anim: anim2, frame, message });
     const label = (a, i) => `${a} frame ${i + 1}`;
@@ -7111,6 +7112,36 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
         keys.push(key);
       });
       if (a.frames.length > 1 && keys.every((k) => k !== null && k === keys[0])) add("warning", "static-animation", name, null, `Every frame of ${name} is identical, so it shows no movement.`);
+      // a loop whose last frame jumps back to the first much harder than any other step
+      if (a.loop && keys.length >= 3 && keys.every((k) => k !== null)) {
+        // how far the outline moves from one frame to the next: the sum of its four edges' moves
+        const boxes = keys.map((_, i) => bboxOf(pixelsOf2(name, i), F)), move = (p, q) => !p || !q ? 0 : Math.abs(p.x0 - q.x0) + Math.abs(p.x1 - q.x1) + Math.abs(p.y0 - q.y0) + Math.abs(p.y1 - q.y1);
+        const steps = boxes.slice(0, -1).map((b2, i) => move(b2, boxes[i + 1])), seam = move(boxes[boxes.length - 1], boxes[0]), most = Math.max(...steps);
+        const median = steps.slice().sort((p, q) => p - q)[steps.length >> 1];
+        // bigger than every step and well above a typical one: a motion that ends far from where it starts
+        if (seam > Math.max(4, most, 2 * median)) add("warning", "loop-seam", name, a.frames.length - 1, `${name} loops, but from frame ${a.frames.length} back to frame 1 its outline moves ${seam} px, more than in any step inside it (at most ${most} px): the loop may jump. Untick Loop if it should play once.`);
+      }
+      // the four corners filled in a frame: the background was probably not removed
+      const filled = keys.findIndex((k, i) => {
+        if (k === null) return false;
+        const p = pixelsOf2(name, i);
+        return p[0] && p[F - 1] && p[F * (F - 1)] && p[F * F - 1];
+      });
+      if (filled >= 0) add("warning", "opaque-background", name, filled, `${label(name, filled)} has all four corners filled: the background may not be transparent.`);
+    }
+    // one animation in several directions should match, so a game can switch direction mid-move
+    for (const set of sets || []) {
+      const have = set.rows.filter((r) => timeline2.anims[r.row]), info2 = (r) => timeline2.anims[r.row];
+      const differ = (what, of) => {
+        const vals = have.map((r) => `${r.dir} ${of(info2(r))}`), uniq = new Set(have.map((r) => of(info2(r))));
+        if (uniq.size > 1) add("warning", "direction-set", have[0].row, null, `${set.name} has different ${what} in different directions (${vals.join(", ")}): switching direction mid-move will jump.`);
+      };
+      if (have.length > 1) {
+        differ("frame counts", (a) => a.frames.length);
+        differ("speeds (fps)", (a) => a.fps);
+        differ("loop settings", (a) => a.loop ? "loops" : "plays once");
+      }
+      if (have.length && set.missing.length) add("info", "direction-missing", have[0].row, null, `${set.name} exists in ${have.map((r) => r.dir).join(", ")} but not in ${set.missing.join(", ")}, which ${set.missing.length > 1 ? "have" : "has"} artwork.`);
     }
     if (rows) {
       for (const r of rows) if (!timeline2.anims[r]) add("error", "missing-animation", r, null, `The sheet includes "${r}", which does not exist.`);
@@ -15708,7 +15739,7 @@ self.onmessage = async e => {
         { ...C("Sheet rows", "#animList"), text: "Tick the animations that become rows of the sheet." },
         { ...C("Export scale", "#scaleSeg"), text: "1\xD7, 2\xD7, 4\xD7 or 8\xD7 pixel size." },
         { ...C("Sheet preview", "#sheetCanvas"), text: "The whole sheet as it will be saved, with its size in pixels." },
-        { ...C("Frame check", "#findings"), text: "Errors (must be fixed before exporting), warnings and notes per frame; click one to go to that frame. For imported characters it also checks joints, gaps, clipping, parts that come away from the body or are left behind, neighbouring frames that look the same, and pixels not in the image." }
+        { ...C("Frame check", "#findings"), text: "Errors (must be fixed before exporting), warnings and notes per frame; click one to go to that frame. For imported characters it also checks joints, gaps, clipping, parts that come away from the body or are left behind, neighbouring frames that look the same, and pixels not in the image. It also warns when one animation has different frame counts, speeds or loop settings in different directions, when a loop jumps from its last frame back to the first, and when a frame has all four corners filled (background not removed). Duplicate frames are only warned about, never deleted. None of this tells whether a motion looks natural: watch it for sliding feet and crossing limbs." }
       ]
     },
     {
@@ -17644,10 +17675,24 @@ self.onmessage = async e => {
     const ia = sprite2.type === "imported" ? iaOf() : null;
     return ia ? importedSource(packCtx(), ia, rows, (n, i) => framesFor(n)[i].out) : null;
   }
+  // each rig animation of an imported character with several directions: its row in every direction
+  function directionSets() {
+    const dirs = directions();
+    if (dirs.length < 2) return null;
+    const names = [...new Set(dirs.flatMap((d) => Object.keys(d.rest.anims || {})))];
+    return names.map((name) => {
+      const rows = [], missing = [];
+      for (const d of dirs) {
+        if ((d.rest.anims || {})[name]) rows.push({ dir: d.dir, row: rowName(name, d.dir, mainDir()) });
+        else if (d.rest.rig) missing.push(d.dir);
+      }
+      return { name, rows, missing };
+    });
+  }
   var lastCheck = { findings: [], errors: 0, warnings: 0 };
   var lastDirViews = [];
   function runCheck(layout2) {
-    lastCheck = validateFrames({ timeline, F: frameSize(), pixelsOf: (n, i) => framesFor(n)[i].out, rows: sheetRows(), layout: layout2, measure: bodyMeasure() });
+    lastCheck = validateFrames({ timeline, F: frameSize(), pixelsOf: (n, i) => framesFor(n)[i].out, rows: sheetRows(), layout: layout2, measure: bodyMeasure(), sets: directionSets() });
     const extra = rigFindings();
     if (extra) {
       lastCheck = { ...lastCheck, findings: [...lastCheck.findings, ...extra], warnings: lastCheck.warnings + extra.filter((f) => f.level === "warning").length, notes: extra.filter((f) => f.level === "info").length };

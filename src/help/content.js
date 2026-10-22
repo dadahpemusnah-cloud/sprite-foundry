@@ -404,7 +404,7 @@
         { ...C("Sheet rows", "#animList"), text: "Tick the animations that become rows of the sheet." },
         { ...C("Export scale", "#scaleSeg"), text: "1\xD7, 2\xD7, 4\xD7 or 8\xD7 pixel size." },
         { ...C("Sheet preview", "#sheetCanvas"), text: "The whole sheet as it will be saved, with its size in pixels." },
-        { ...C("Frame check", "#findings"), text: "Errors (must be fixed before exporting), warnings and notes per frame; click one to go to that frame. For imported characters it also checks joints, gaps, clipping, parts that come away from the body or are left behind, neighbouring frames that look the same, and pixels not in the image." }
+        { ...C("Frame check", "#findings"), text: "Errors (must be fixed before exporting), warnings and notes per frame; click one to go to that frame. For imported characters it also checks joints, gaps, clipping, parts that come away from the body or are left behind, neighbouring frames that look the same, and pixels not in the image. It also warns when one animation has different frame counts, speeds or loop settings in different directions, when a loop jumps from its last frame back to the first, and when a frame has all four corners filled (background not removed). Duplicate frames are only warned about, never deleted. None of this tells whether a motion looks natural: watch it for sliding feet and crossing limbs." }
       ]
     },
     {

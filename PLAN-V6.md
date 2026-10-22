@@ -1,6 +1,6 @@
 # Sprite Foundry — V6 plan (draft)
 
-Status: **in progress** (stages 0–3 done). Written 2026-10-22.
+Status: **in progress** (stages 0–4 done). Written 2026-10-22.
 Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
 "Auto Animate — four-direction walk" request.
 
@@ -16,6 +16,11 @@ Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
   planted pose on every frame, evenly spaced on the gait cycle) instead of stretching 8 keys. At 12
   frames the side views lost their body-jump warnings and the feet stay on one ground row
   (`tests/walk-quality.mjs`, which fails on the stage 2 build). The 8-frame walk is unchanged.
+- **Stage 4 done**: Frame check warns about one animation differing between directions (frames,
+  fps, loop), notes directions with artwork that lack it, warns when a loop's last frame jumps back
+  to the first (outline movement against the steps inside), and when a frame's four corners are
+  filled. `tests/frame-check.mjs` also checks there are no false alarms on built-in sprites or a
+  clean walk.
 - Noted for stage 7: the page is 5 px wider than a 390 px phone screen (export preset menu and
   some canvases); this predates V6.
 

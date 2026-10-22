@@ -1290,10 +1290,24 @@
     const ia = sprite2.type === "imported" ? iaOf() : null;
     return ia ? importedSource(packCtx(), ia, rows, (n, i) => framesFor(n)[i].out) : null;
   }
+  // each rig animation of an imported character with several directions: its row in every direction
+  function directionSets() {
+    const dirs = directions();
+    if (dirs.length < 2) return null;
+    const names = [...new Set(dirs.flatMap((d) => Object.keys(d.rest.anims || {})))];
+    return names.map((name) => {
+      const rows = [], missing = [];
+      for (const d of dirs) {
+        if ((d.rest.anims || {})[name]) rows.push({ dir: d.dir, row: rowName(name, d.dir, mainDir()) });
+        else if (d.rest.rig) missing.push(d.dir);
+      }
+      return { name, rows, missing };
+    });
+  }
   var lastCheck = { findings: [], errors: 0, warnings: 0 };
   var lastDirViews = [];
   function runCheck(layout2) {
-    lastCheck = validateFrames({ timeline, F: frameSize(), pixelsOf: (n, i) => framesFor(n)[i].out, rows: sheetRows(), layout: layout2, measure: bodyMeasure() });
+    lastCheck = validateFrames({ timeline, F: frameSize(), pixelsOf: (n, i) => framesFor(n)[i].out, rows: sheetRows(), layout: layout2, measure: bodyMeasure(), sets: directionSets() });
     const extra = rigFindings();
     if (extra) {
       lastCheck = { ...lastCheck, findings: [...lastCheck.findings, ...extra], warnings: lastCheck.warnings + extra.filter((f) => f.level === "warning").length, notes: extra.filter((f) => f.level === "info").length };

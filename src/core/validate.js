@@ -23,7 +23,8 @@
     }
     return { x0, x1, y0, y1, w: x1 - x0 + 1, h: y1 - y0 + 1, cx: (x0 + x1) / 2, mid, count: n };
   }
-  function validateFrames({ timeline: timeline2, F, pixelsOf: pixelsOf2, rows = null, layout: layout2 = null, drift = 4, measure = null }) {
+  // sets: one animation drawn in several directions, [{ name, rows: [{ dir, row }], missing: [dir] }]
+  function validateFrames({ timeline: timeline2, F, pixelsOf: pixelsOf2, rows = null, layout: layout2 = null, drift = 4, measure = null, sets = null }) {
     const findings = [], frames = [];
     const add = (level, code, anim2, frame, message) => findings.push({ level, code, anim: anim2, frame, message });
     const label = (a, i) => `${a} frame ${i + 1}`;
@@ -75,6 +76,36 @@
         keys.push(key);
       });
       if (a.frames.length > 1 && keys.every((k) => k !== null && k === keys[0])) add("warning", "static-animation", name, null, `Every frame of ${name} is identical, so it shows no movement.`);
+      // a loop whose last frame jumps back to the first much harder than any other step
+      if (a.loop && keys.length >= 3 && keys.every((k) => k !== null)) {
+        // how far the outline moves from one frame to the next: the sum of its four edges' moves
+        const boxes = keys.map((_, i) => bboxOf(pixelsOf2(name, i), F)), move = (p, q) => !p || !q ? 0 : Math.abs(p.x0 - q.x0) + Math.abs(p.x1 - q.x1) + Math.abs(p.y0 - q.y0) + Math.abs(p.y1 - q.y1);
+        const steps = boxes.slice(0, -1).map((b2, i) => move(b2, boxes[i + 1])), seam = move(boxes[boxes.length - 1], boxes[0]), most = Math.max(...steps);
+        const median = steps.slice().sort((p, q) => p - q)[steps.length >> 1];
+        // bigger than every step and well above a typical one: a motion that ends far from where it starts
+        if (seam > Math.max(4, most, 2 * median)) add("warning", "loop-seam", name, a.frames.length - 1, `${name} loops, but from frame ${a.frames.length} back to frame 1 its outline moves ${seam} px, more than in any step inside it (at most ${most} px): the loop may jump. Untick Loop if it should play once.`);
+      }
+      // the four corners filled in a frame: the background was probably not removed
+      const filled = keys.findIndex((k, i) => {
+        if (k === null) return false;
+        const p = pixelsOf2(name, i);
+        return p[0] && p[F - 1] && p[F * (F - 1)] && p[F * F - 1];
+      });
+      if (filled >= 0) add("warning", "opaque-background", name, filled, `${label(name, filled)} has all four corners filled: the background may not be transparent.`);
+    }
+    // one animation in several directions should match, so a game can switch direction mid-move
+    for (const set of sets || []) {
+      const have = set.rows.filter((r) => timeline2.anims[r.row]), info2 = (r) => timeline2.anims[r.row];
+      const differ = (what, of) => {
+        const vals = have.map((r) => `${r.dir} ${of(info2(r))}`), uniq = new Set(have.map((r) => of(info2(r))));
+        if (uniq.size > 1) add("warning", "direction-set", have[0].row, null, `${set.name} has different ${what} in different directions (${vals.join(", ")}): switching direction mid-move will jump.`);
+      };
+      if (have.length > 1) {
+        differ("frame counts", (a) => a.frames.length);
+        differ("speeds (fps)", (a) => a.fps);
+        differ("loop settings", (a) => a.loop ? "loops" : "plays once");
+      }
+      if (have.length && set.missing.length) add("info", "direction-missing", have[0].row, null, `${set.name} exists in ${have.map((r) => r.dir).join(", ")} but not in ${set.missing.join(", ")}, which ${set.missing.length > 1 ? "have" : "has"} artwork.`);
     }
     if (rows) {
       for (const r of rows) if (!timeline2.anims[r]) add("error", "missing-animation", r, null, `The sheet includes "${r}", which does not exist.`);
