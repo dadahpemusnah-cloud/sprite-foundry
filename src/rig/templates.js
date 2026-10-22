@@ -76,8 +76,9 @@
     fn.marked = missing;
     return fn;
   }
-  function fittedPreset(rest, layers, kind, facing, out = {}) {
-    const info = bodyInfo(rest), raw = PRESETS[kind](rest.rig, facing, info);
+  // frames: a preset that can build itself at that frame count (walk) does; the others are retimed after
+  function fittedPreset(rest, layers, kind, facing, out = {}, frames = 0) {
+    const info = bodyInfo(rest), raw = PRESETS[kind](rest.rig, facing, info, frames);
     Object.assign(out, { reach: 1, grip: "swing", cut: 0 });
     if (!layers) {
       const { ground, air, reach, centre, bob, ...plain } = raw;
@@ -108,7 +109,7 @@
     return judge;
   }
   function buildTemplate(t, rest, layers, { facing = "right", fps, loop, frames } = {}, out = {}) {
-    const a = fittedPreset(rest, layers, t.preset, facing, out), b = { ...a, fps: fps ?? a.fps, loop: loop ?? a.loop };
+    const a = fittedPreset(rest, layers, t.preset, facing, out, frames), b = { ...a, fps: fps ?? a.fps, loop: loop ?? a.loop };
     return frames ? retime(b, frames) : b;
   }
   function reachNote(out) {

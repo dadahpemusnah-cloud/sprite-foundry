@@ -1,6 +1,6 @@
 # Sprite Foundry — V6 plan (draft)
 
-Status: **in progress** (stages 0–2 done). Written 2026-10-22.
+Status: **in progress** (stages 0–3 done). Written 2026-10-22.
 Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
 "Auto Animate — four-direction walk" request.
 
@@ -12,6 +12,10 @@ Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
 - **Stage 2 done**: Auto Animate panel (step 6). Found and fixed two existing races that made
   multi-direction rigs nondeterministic: Rough guess and Use as sprite could act on the previous
   direction's image while the new one was still decoding or converting (`tests/direction-switch.mjs`).
+- **Stage 3 done**: the side-view walk at any frame count other than 8 is built at that count (a
+  planted pose on every frame, evenly spaced on the gait cycle) instead of stretching 8 keys. At 12
+  frames the side views lost their body-jump warnings and the feet stay on one ground row
+  (`tests/walk-quality.mjs`, which fails on the stage 2 build). The 8-frame walk is unchanged.
 - Noted for stage 7: the page is 5 px wider than a 390 px phone screen (export preset menu and
   some canvases); this predates V6.
 

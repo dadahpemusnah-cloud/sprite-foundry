@@ -193,7 +193,7 @@
       { t: 5, ease: "easeInOut", pose: pose(rig, { upperArmL: -2 * d, upperArmR: 2 * d, forearmL: 3 * d, forearmR: 3 * d, head: -2 * d }) }
     ] };
   }
-  function presetWalk(rig, facing = "right", info = null) {
+  function presetWalk(rig, facing = "right", info = null, frames = 0) {
     const d = D(facing), I = infoOr(rig, info);
     if (facing === "front") {
       const step2 = (S, O) => pose(
@@ -216,10 +216,19 @@
       pose(rig, { thighL: -2 * F, thighR: 10 * F, shinR: -40 * F, footR: 10 * F, upperArmL: 0, upperArmR: 0 }, { torso: [0, 0] }),
       pose(rig, { thighL: -14 * F, shinL: -6 * F, thighR: 20 * F, shinR: -18 * F, upperArmL: 12 * F, upperArmR: -12 * F }, { torso: [0, -4] })
     ];
-    half2.forEach((p, i) => {
-      half2[i] = grounded(rig, I, p);
-    });
-    const keys = [...half2.map((p, i) => ({ t: i, ease: "linear", pose: p })), ...half2.map((p, i) => ({ t: i + 4, ease: "linear", pose: mirrorPose(p) }))];
+    // contact, down, passing, up; then the same with the legs swapped: eight checkpoints around the gait cycle
+    const cycle = [...half2, ...half2.map(mirrorPose)];
+    if (frames && frames !== 8) {
+      // another frame count: a pose on every frame, evenly spaced around the cycle (contact and passing
+      // land on frames 0, n/4, n/2, 3n/4 when n is a multiple of 4), each planted on the ground itself
+      // instead of stretching the 8 keys unevenly
+      const keys2 = Array.from({ length: frames }, (_, i) => {
+        const u = i * 8 / frames, k = Math.floor(u);
+        return { t: i, ease: "linear", pose: grounded(rig, I, lerpPose(cycle[k], cycle[(k + 1) % 8], u - k)) };
+      });
+      return { frames, fps: 10, loop: true, facing, ground: keys2.map((k) => k.t), keys: keys2 };
+    }
+    const keys = cycle.map((p, i) => ({ t: i, ease: "linear", pose: grounded(rig, I, p) }));
     return { frames: 8, fps: 10, loop: true, facing, ground: [0, 1, 2, 3, 4, 5, 6, 7], keys };
   }
   function presetAttack(rig, facing = "right") {
