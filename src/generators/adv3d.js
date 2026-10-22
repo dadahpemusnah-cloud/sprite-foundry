@@ -37,6 +37,17 @@
     return { kind, tones: [mix(r.sh2, "#000000", 0.2), r.sh, r.base, r.hi, kind === "metal" ? mix(r.hi2, "#ffffff", 0.5) : r.hi2] };
   }
   var A3_CLASSES = { fighter: "Fighter", wizard: "Wizard", druid: "Druid" };
+  // the head is drawn larger than life (as in most game sprites): everything of the head part is scaled
+  // about the neck by A3_HEAD
+  var A3_HEAD = 1.12, A3_NECK = [0, 34, 0];
+  const a3HeadXf = (l) => [A3_NECK[0] + (l[0] - A3_NECK[0]) * A3_HEAD, A3_NECK[1] + (l[1] - A3_NECK[1]) * A3_HEAD, A3_NECK[2] + (l[2] - A3_NECK[2]) * A3_HEAD];
+  // a stable pseudo-random value per small cell of the figure (texture that turns with it)
+  function a3Hash(q) {
+    const x = Math.floor(q[0] * 1.5), y = Math.floor(q[1] * 1.5), z = Math.floor(q[2] * 1.5);
+    let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 2147483647);
+    h = Math.imul(h ^ h >>> 13, 1274126177);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  }
   // ---- shapes with a bounding sphere b = [x, y, z, r] (the renderer skips a shape whose sphere is
   // farther away than the nearest surface found so far)
   const A3 = {
@@ -68,8 +79,9 @@
       metal: a3Mat(215, 10, 60, "metal"),
       dark: a3Mat(220, 12, 32, "metal"),
       gold: a3Mat(44, 75, 50, "metal"),
-      leather: a3Mat(28, 42, 34),
-      boot: a3Mat(24, 32, 24),
+      leather: { ...a3Mat(28, 42, 34), tex: 0.12 },
+      fur: { ...a3Mat(32, 30, 52), tex: 0.32 },
+      boot: { ...a3Mat(24, 32, 24), tex: 0.08 },
       wood: a3Mat(30, 42, 34),
       pants: a3Mat(rc() * 360, 16, 26),
       leaf: a3Mat(110, 55, 42)
@@ -77,7 +89,11 @@
     const cloth = cls === "fighter" ? a3Mat(rc.pick([355, 215, 275, 5]), 62, 38) : cls === "wizard" ? a3Mat(rc.pick([228, 262, 205]), 58, 42) : a3Mat(rc.pick([105, 95, 125]), 36, 36);
     M.cloth = { ...cloth, kind: "cloth" };
     M.glow = { kind: "glow", tones: a3Mat(rc.pick([195, 205, 285]), 90, 62, "metal").tones };
-    const P = [], add = (part, mat, s) => P.push({ part, mat, d: s.d, b: s.b });
+    const P = [], add = (part, mat, s) => {
+      if (part !== "head") return P.push({ part, mat, d: s.d, b: s.b });
+      const C = A3_NECK, k = A3_HEAD, inv = (p) => [C[0] + (p[0] - C[0]) / k, C[1] + (p[1] - C[1]) / k, C[2] + (p[2] - C[2]) / k];
+      P.push({ part, mat, d: (p) => s.d(inv(p)) * k, b: [...a3HeadXf(s.b), s.b[3] * k] });
+    };
     const plate = cls === "fighter", robe = cls === "wizard", druid = cls === "druid";
     for (const s of ["R", "L"]) {
       const X = (x) => (s === "R" ? -1 : 1) * x;
@@ -122,6 +138,14 @@
       add("pelvis", M.cloth, A3.box([0, 16.4, 3.95], [2.3, 3.9, 0.5], 0.3));
       add("torso", M.gold, A3.ell([0, 26, 4.95], [1.1, 1.3, 0.45]));
       add("cloak", M.cloth, A3.custom([0, 17, -2, 14], (p) => capeD(p, 31.5, 6.2, 9.8, -2.2)));
+      for (const k of [1, -1]) {
+        add("torso", M.gold, A3.ell([4.6 * k, 31.4, 3.3], [0.85, 0.85, 0.6]));
+        for (const dy of [-0.6, 1.4]) add("upperArm" + (k > 0 ? "L" : "R"), M.gold, A3.ell([8.6 * k, 32.4 + dy, 2.9], [0.4, 0.4, 0.4]));
+      }
+      add("pelvis", M.gold, A3.ell([0, 22.3, 4.1], [1, 0.75, 0.45]));
+      add("pelvis", M.leather, A3.ell([4.9, 20.1, 3.1], [1.4, 1.7, 1.1]));
+      add("pelvis", M.gold, A3.box([0, 16.8, 4.5], [0.45, 1.7, 0.3]));
+      add("pelvis", M.gold, A3.box([0, 17.6, 4.5], [1.3, 0.45, 0.3]));
       add("weapon", M.metal, A3.cone([-9.6, 18.8, 2.6], [-15.2, 33.4, 4], 1, 0.6));
       add("weapon", M.gold, A3.cone([-7.4, 18.7, 1.6], [-11.6, 17.3, 3.4], 0.6, 0.6));
       add("weapon", M.leather, A3.cone([-9, 17.4, 1.6], [-8.3, 15.3, 1], 0.6, 0.6));
@@ -133,7 +157,11 @@
       add("head", M.white, A3.cone([0, 34.6, 4.6], [0, 26.2, 5.8], 3.3, 0.6));
       add("head", M.white, A3.ell([0, 36, -2.6], [5.3, 6.5, 3]));
       add("head", M.cloth, A3.cyl([0, 44.2, 0], 9.6, 0.55));
-      add("head", M.cloth, A3.union(A3.cone([0, 44.4, 0], [-0.6, 48, -1.4], 5.5, 2.5), A3.cone([-0.6, 48, -1.4], [-1.9, 50, -4.6], 2.5, 0.5)));
+      add("head", M.cloth, A3.union(A3.cone([0, 44.4, 0], [-0.6, 46.9, -1.3], 5.5, 2.5), A3.cone([-0.6, 46.9, -1.3], [-1.8, 48, -4.2], 2.5, 0.5)));
+      add("head", M.gold, A3.ell([3, 45.9, 3.6], [0.55, 0.55, 0.45]));
+      add("head", M.gold, A3.ell([-3.4, 46.3, 2.4], [0.5, 0.5, 0.45]));
+      for (const k of [1, -1]) add("head", M.white, A3.cone([5.2 * k, 38, 0.8], [5.5 * k, 31.6, 1.6], 1.3, 1));
+      add("pelvis", M.gold, A3.cone([1.6, 22, 4.3], [2.3, 15, 5.4], 0.65, 0.55));
       add("head", M.gold, A3.cyl([0, 45.3, 0], 5.6, 0.55));
       add("robe", M.cloth, A3.custom([0, 13, 0.4, 14], (p) => clothD(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.4, 9.6), p, 0.35)));
       add("robe", M.gold, A3.custom([0, 2, 0.6, 10.5], (p) => Math.max(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.55, 9.75), Math.abs(p[1] - 2.3) - 0.7)));
@@ -151,7 +179,12 @@
         const open = sdEllipsoid(p, [0, 38.8, 5.4], [4.6, 5.4, 4.6]);
         return Math.max(Math.min(shell, sdCone(p, [0, 35, -1.4], [0, 31.4, -2], 6.4, 8.2) + 0.2), -open, 30 - p[1]);
       }));
-      for (const k of [1, -1]) add("head", M.white, A3.union(A3.cone([3.6 * k, 45.2, -0.4], [6.6 * k, 49.4, -1], 0.6, 0.45), A3.cone([5.2 * k, 47.4, -0.7], [4.4 * k, 50, -0.6], 0.45, 0.4), A3.cone([6.6 * k, 49.4, -1], [8.8 * k, 49.6, -1.4], 0.45, 0.4)));
+      for (const k of [1, -1]) add("head", M.white, A3.union(A3.cone([3.6 * k, 45.2, -0.4], [6.2 * k, 47.6, -1], 0.6, 0.45), A3.cone([4.9 * k, 46.4, -0.7], [4.5 * k, 47.9, -0.6], 0.45, 0.4), A3.cone([6.2 * k, 47.6, -1], [8 * k, 47.6, -1.4], 0.45, 0.4)));
+      // fur round the hood's opening
+      add("head", M.fur, A3.custom([0, 38.8, 4, 7.5], (p) => Math.max(Math.abs(sdEllipsoid(p, [0, 38.8, 5.4], [4.9, 5.7, 4.9])) - 0.65, sdEllipsoid(p, [0, 40.2, -0.7], [7.3, 7.7, 7.5]), -sdEllipsoid(p, [0, 40.2, -0.7], [5.8, 6.2, 6]), 31 - p[1])));
+      add("torso", M.leaf, A3.ell([0, 32.3, 4.1], [1.1, 0.8, 0.6]));
+      add("torso", M.boot, A3.cone([-5.8, 32, 3.9], [5.8, 21, 4.3], 0.55, 0.55));
+      add("pelvis", M.leather, A3.ell([-4.6, 19.4, 3.3], [1.3, 1.6, 1.1]));
       add("cloak", M.cloth, A3.custom([0, 17, -1, 14], (p) => capeD(p, 32, 7.4, 10.4, 0.6)));
       add("torso", M.boot, A3.cone([5.8, 32, 3.9], [-5.8, 21, 4.3], 0.6, 0.6));
       add("pelvis", M.leather, A3.ell([4.6, 19.4, 3.3], [1.6, 1.9, 1.2]));
@@ -177,15 +210,26 @@
     const ct = Math.cos(A3_TILT), st = Math.sin(A3_TILT);
     // camera: screen x = world x, screen up = (0, cos t, -sin t), towards the viewer = (0, sin t, cos t)
     const toLocal = (w) => [w[0] * cy - w[2] * sy, w[1], w[0] * sy + w[2] * cy];
+    if (!fig.groups) {
+      const by = new Map();
+      for (const pr of fig.parts) (by.get(pr.part) || by.set(pr.part, []).get(pr.part)).push(pr);
+      fig.groups = [...by.values()].map((list) => {
+        const c = [0, 1, 2].map((k) => list.reduce((t, s) => t + s.b[k], 0) / list.length);
+        return { list, b: [...c, Math.max(...list.map((s) => vLen(vSub(c, s.b)) + s.b[3]))] };
+      });
+    }
     const scene = (q) => {
       let best = Infinity, hit = null;
-      for (const pr of fig.parts) {
+      for (const g of fig.groups) {
+        if (Math.hypot(q[0] - g.b[0], q[1] - g.b[1], q[2] - g.b[2]) - g.b[3] > best) continue;
+        for (const pr of g.list) {
         const b = pr.b, db = Math.hypot(q[0] - b[0], q[1] - b[1], q[2] - b[2]) - b[3];
         if (db > best) continue;
         const d = pr.d(q);
         if (d < best) {
           best = d;
           hit = pr;
+        }
         }
       }
       return [best, hit];
@@ -224,14 +268,16 @@
         const nw = [nl[0] * cy + nl[2] * sy, nl[1], -nl[0] * sy + nl[2] * cy];
         const n = [nw[0], nw[1] * ct - nw[2] * st, nw[1] * st + nw[2] * ct];
         const m = res.pr.mat, lam = Math.max(0, vDot(n, L));
-        let v = 0.18 + 0.82 * lam;
+        // a contrast curve: deeper shadows on the far side, brighter faces towards the light
+        let v = 0.1 + 0.95 * Math.pow(lam, 0.85);
         if (m.kind === "metal") {
           const r = [2 * vDot(n, L) * n[0] - L[0], 2 * vDot(n, L) * n[1] - L[1], 2 * vDot(n, L) * n[2] - L[2]], spec = Math.pow(Math.max(0, vDot(r, V)), 14);
           v = 0.08 + 0.85 * lam + (spec > 0.45 ? 0.5 : 0);
         }
         if (m.kind === "glow") v = 0.62 + 0.5 * lam;
-        if (m.kind === "skin") v = 0.32 + 0.72 * lam;
-        const tone = v < 0.3 ? 0 : v < 0.5 ? 1 : v < 0.74 ? 2 : v < 0.93 ? 3 : 4;
+        if (m.kind === "skin") v = 0.42 + 0.64 * lam;
+        if (m.tex) v += (a3Hash(q) - 0.5) * m.tex;
+        const tone = v < 0.28 ? 0 : v < 0.48 ? 1 : v < 0.7 ? 2 : v < 0.9 ? 3 : 4;
         samples.push({ part: res.pr.part, mat: m, tone, depth: res.t });
       }
       if (samples.length < 2) {
@@ -258,9 +304,35 @@
         else if (o && o.mat !== c.mat && o.depth > c.depth + 0.5 && c.mat.kind !== "flat" && c.mat.kind !== "glow") out[j * N + i].tone = Math.min(out[j * N + i].tone, 1);
       }
     }
+    a3Clean(out);
     const px = out.map((c) => c ? { part: c.part, colour: c.mat.tones[c.tone] } : null);
+    // a glow lights the pixels around it
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      if (px[j * N + i]) continue;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const o = out[(j + dj) * N + i + di];
+        if (i + di >= 0 && i + di < N && j + dj >= 0 && j + dj < N && o && o.mat.kind === "glow" && !px[j * N + i]) px[j * N + i] = { part: o.part, colour: o.mat.tones[3] };
+      }
+    }
     a3Face(fig, cells, px, { cy, sy, ct, st });
     return px;
+  }
+  // pixel clean-up: drop lone pixels, fill one-pixel holes, and even out a tone that differs from all
+  // four neighbours of the same material when they agree
+  function a3Clean(cells) {
+    const N = A3_N, at = (i, j) => i >= 0 && j >= 0 && i < N && j < N ? cells[j * N + i] : null, D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const copy = cells.slice();
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const c = copy[j * N + i], nb = D.map(([a, b]) => copy[(j + b) * N + i + a] && i + a >= 0 && i + a < N && j + b >= 0 && j + b < N ? copy[(j + b) * N + i + a] : null);
+      if (c && nb.every((n) => !n)) cells[j * N + i] = null;
+      else if (!c) {
+        const full = nb.filter(Boolean);
+        if (full.length >= 3 && full.every((n) => n.part === full[0].part)) cells[j * N + i] = { ...full[0] };
+      } else {
+        const same = nb.filter((n) => n && n.mat === c.mat);
+        if (same.length === 4 && same.every((n) => n.tone === same[0].tone) && same[0].tone !== c.tone && Math.abs(same[0].tone - c.tone) === 1) cells[j * N + i] = { ...c, tone: same[0].tone };
+      }
+    }
   }
   // the face, drawn as exact pixels where the 3D head puts it: each eye a white and an iris (an iris
   // alone when it turns away), a brow above it, the mouth; a feature is drawn only where it faces the
@@ -269,13 +341,13 @@
     const N = A3_N, F = fig.face;
     if (!F) return;
     const toWorld = (l) => [l[0] * cy + l[2] * sy, l[1], -l[0] * sy + l[2] * cy];
-    const project = (l) => {
-      const w = toWorld(l), up = w[1] * ct - w[2] * st;
+    const project = (l0) => {
+      const l = a3HeadXf(l0), w = toWorld(l), up = w[1] * ct - w[2] * st;
       return { i: Math.floor(w[0] + N / 2), j: Math.floor(N - 1.6 - up), depth: 60 - (w[1] * st + w[2] * ct) };
     };
     // how much a point on the head (from the skull's centre) faces the camera
     const facing = (l) => {
-      const n = toWorld(vNorm(vSub(l, [0, 39.4, 0.2])));
+      const n = toWorld(vNorm(vSub(a3HeadXf(l), a3HeadXf([0, 39.4, 0.2]))));
       return n[1] * st + n[2] * ct;
     };
     const seen = (q) => {
