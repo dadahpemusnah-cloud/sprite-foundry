@@ -132,6 +132,10 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 .project-msg .msg.error{border-color:var(--err)}
 .project-msg .msg.warning{border-color:var(--warn)}
 .import-drop{border:2px dashed var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.quick{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;background:var(--sunk)}
+.quick p,.quick ul{margin:0}
+.quick ul{padding-left:18px}
+.quick .row{flex-wrap:wrap}
 .import-drop p{margin:0}
 .import-drop.loaded{padding:8px 14px}
 .import.dragging .import-drop{border-color:var(--accent);background:var(--sunk)}
@@ -594,7 +598,17 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
   <section class="panel import" id="importPanel" aria-label="Image to pixel art">
     <div class="tray-head">
       <h2 class="label">Image to pixel art · 1 source image · 2 background · 3 pixel art · 4 body parts · 5 joints · 6 animation · 7 drawings</h2>
-      <span class="hint mono">Presets: idle, walk, sword attack, run, jump, hurt, death</span>
+      <span class="hint mono">Presets: idle, walk, sword attack, punch, block, run, jump, hurt, death</span>
+    </div>
+    <div class="quick" id="quickBox">
+      <h3 class="label">Convert in one click</h3>
+      <p class="hint">Upload a full-body character standing and facing you. Convert removes the background, makes pixel art, finds the body parts and joints, and makes idle, walk, run, attack, defence, hurt and death. Add a side view (facing right) to get left and right too: the left one is your side image mirrored.</p>
+      <div class="row">
+        <label class="field" for="qcFront">front (needed) <input type="file" id="qcFront" accept="image/png,image/jpeg,.png,.jpg,.jpeg"></label>
+        <label class="field" for="qcSide">side, facing right (optional) <input type="file" id="qcSide" accept="image/png,image/jpeg,.png,.jpg,.jpeg"></label>
+      </div>
+      <div class="row"><button id="qcGo" type="button" class="primary" disabled>Convert</button><span class="hint" id="qcMsg" role="status"></span></div>
+      <ul class="hint" id="qcResult" hidden></ul>
     </div>
     <div class="dir-bar" id="dirBar" hidden>
       <div class="row">

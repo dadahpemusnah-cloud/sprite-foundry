@@ -378,6 +378,8 @@
       setRest,
       focus,
       data: () => st.rgba ? { rgba: st.rgba, size: st.size } : null,
+      // the image the panel works on, once it is decoded (V8.0: Convert waits for it)
+      readyFor: (rest) => st.rest === rest && !!st.seg,
       info() {
         if (!st.seg) return { ready: false, needsWork: !!(st.rest && !st.rest.work) };
         const c = counts(st.seg);

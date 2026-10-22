@@ -132,6 +132,10 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 .project-msg .msg.error{border-color:var(--err)}
 .project-msg .msg.warning{border-color:var(--warn)}
 .import-drop{border:2px dashed var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.quick{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;background:var(--sunk)}
+.quick p,.quick ul{margin:0}
+.quick ul{padding-left:18px}
+.quick .row{flex-wrap:wrap}
 .import-drop p{margin:0}
 .import-drop.loaded{padding:8px 14px}
 .import.dragging .import-drop{border-color:var(--accent);background:var(--sunk)}
@@ -594,7 +598,17 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
   <section class="panel import" id="importPanel" aria-label="Image to pixel art">
     <div class="tray-head">
       <h2 class="label">Image to pixel art · 1 source image · 2 background · 3 pixel art · 4 body parts · 5 joints · 6 animation · 7 drawings</h2>
-      <span class="hint mono">Presets: idle, walk, sword attack, run, jump, hurt, death</span>
+      <span class="hint mono">Presets: idle, walk, sword attack, punch, block, run, jump, hurt, death</span>
+    </div>
+    <div class="quick" id="quickBox">
+      <h3 class="label">Convert in one click</h3>
+      <p class="hint">Upload a full-body character standing and facing you. Convert removes the background, makes pixel art, finds the body parts and joints, and makes idle, walk, run, attack, defence, hurt and death. Add a side view (facing right) to get left and right too: the left one is your side image mirrored.</p>
+      <div class="row">
+        <label class="field" for="qcFront">front (needed) <input type="file" id="qcFront" accept="image/png,image/jpeg,.png,.jpg,.jpeg"></label>
+        <label class="field" for="qcSide">side, facing right (optional) <input type="file" id="qcSide" accept="image/png,image/jpeg,.png,.jpg,.jpeg"></label>
+      </div>
+      <div class="row"><button id="qcGo" type="button" class="primary" disabled>Convert</button><span class="hint" id="qcMsg" role="status"></span></div>
+      <ul class="hint" id="qcResult" hidden></ul>
     </div>
     <div class="dir-bar" id="dirBar" hidden>
       <div class="row">
@@ -5782,6 +5796,33 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       { t: 3, ease: "step", pose: guard(1, 0) }
     ] }, weaponReach(rig));
   }
+  // V8.0: an attack without a weapon (most uploaded characters carry none): the free arm guards the
+  // face, the other winds back, jabs forwards with a lean and a small step, and comes back
+  function presetPunch(rig, facing = "right", info = null) {
+    const I = infoOr(rig, info);
+    if (facing === "front") {
+      // from the front the jab comes across the body towards the middle at chest height
+      const at2 = (r, fr, k) => grounded(rig, I, pose(rig, { upperArmL: -35 * k, forearmL: -110 * k, upperArmR: r, forearmR: fr, thighL: 4 * k, thighR: -4 * k }));
+      return withReach({ frames: 6, fps: 12, loop: false, facing, ground: [0, 1, 2, 3, 4, 5], keys: [
+        { t: 0, ease: "easeInOut", pose: pose(rig) },
+        { t: 1, ease: "easeIn", pose: at2(-20, 90, 1) },
+        { t: 2, ease: "easeOut", pose: at2(70, 40, 1) },
+        { t: 3, ease: "linear", pose: at2(65, 35, 1) },
+        { t: 4, ease: "easeInOut", pose: at2(20, 60, 0.8) },
+        { t: 5, ease: "easeInOut", pose: at2(5, 15, 0.3) }
+      ] }, armsReach(rig));
+    }
+    const d = D(facing), F = -d;
+    const at = (r, fr, k, lean, step2 = 0) => grounded(rig, I, pose(rig, { ...armsSide(F, 40 * k, r, 100 * k, fr), torso: lean * F, head: -lean / 2 * F, thighL: 6 * step2 * F, thighR: -6 * step2 * F }));
+    return withReach({ frames: 6, fps: 12, loop: false, facing, ground: [0, 1, 2, 3, 4, 5], keys: [
+      { t: 0, ease: "easeInOut", pose: pose(rig) },
+      { t: 1, ease: "easeIn", pose: at(-35, 100, 1, -3) },
+      { t: 2, ease: "easeOut", pose: at(88, 0, 1, 8, 1) },
+      { t: 3, ease: "linear", pose: at(85, 5, 1, 7, 1) },
+      { t: 4, ease: "easeInOut", pose: at(30, 60, 0.8, 2) },
+      { t: 5, ease: "easeInOut", pose: at(10, 15, 0.3, 0) }
+    ] }, armsReach(rig));
+  }
   function presetCast(rig, facing = "right", info = null) {
     const I = infoOr(rig, info);
     if (facing === "front") {
@@ -5994,6 +6035,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     wave: presetWave,
     block: presetBlock,
     cast: presetCast,
+    punch: presetPunch,
     bow: presetBow,
     climb: presetClimb,
     push: presetPush,
@@ -11303,6 +11345,8 @@ self.onmessage = async e => {
       setRest,
       focus,
       data: () => st.rgba ? { rgba: st.rgba, size: st.size } : null,
+      // the image the panel works on, once it is decoded (V8.0: Convert waits for it)
+      readyFor: (rest) => st.rest === rest && !!st.seg,
       info() {
         if (!st.seg) return { ready: false, needsWork: !!(st.rest && !st.rest.work) };
         const c = counts(st.seg);
@@ -11857,6 +11901,7 @@ self.onmessage = async e => {
     },
     // library v2 (phase U7): top-down and side-scroller motions, each with a side and a front view
     { id: "block", preset: "block", name: "Block", category: "combat", description: "The arms come up in front of the face, the knees give, the body takes the hit and holds the guard.", requires: () => ARMS },
+    { id: "punch", preset: "punch", name: "Punch", category: "combat", description: "An attack without a weapon: the free arm guards the face, the other winds back, jabs forwards with a lean and a small step, and comes back.", requires: () => ARMS },
     { id: "cast", preset: "cast", name: "Cast", category: "combat", description: "Both arms draw back, rise and thrust forwards (from the front: up, then out to the sides), with a lean into it.", requires: () => ARMS },
     { id: "bow", preset: "bow", name: "Bow shot", category: "combat", description: "The bow arm holds out at shoulder height, the other draws to the face, holds, lets go and comes down.", requires: () => ARMS },
     { id: "climb", preset: "climb", name: "Climb", category: "movement", description: "On the spot: one arm reaches up while the other pulls, the opposite knee comes up. Feet leave the ground.", requires: () => [...ARMS, ...LEGS] },
@@ -17145,6 +17190,18 @@ self.onmessage = async e => {
       ]
     },
     {
+      id: "quick",
+      mode: "foundry",
+      title: "Convert in one click",
+      go: "#quickBox",
+      summary: "From a picture to an animated character in one step.",
+      items: [
+        { ...C("front (needed)", "#qcFront"), text: "A full-body character standing and facing you, PNG or JPEG. A transparent background is used as it is; otherwise the plain background around the character is removed." },
+        { ...C("side, facing right (optional)", "#qcSide"), text: "The same character seen from its right side. It becomes the right view, and its mirror the left view (the result says so). Without it you get the front view only." },
+        { ...C("Convert", "#qcGo"), text: "Runs steps 1 to 6 for you: background, pixel art, body parts (Rough guess), joints (Suggest joints), then idle, walk, run, attack (a swing with a weapon held in a hand, a punch without), defence (Block), hurt and death in every view. It asks first if a character is already there, and stops with a message if an image cannot be opened. The result is an ordinary imported character: check its parts in step 4 and the frame check, and fix by hand what the guess got wrong. Back views are not made yet." }
+      ]
+    },
+    {
       id: "import",
       mode: "foundry",
       title: "1 \xB7 Source image",
@@ -19583,6 +19640,149 @@ self.onmessage = async e => {
     }
     guardDiscard(label, action);
   }
+  // V8.0: Convert in one click. Runs steps 1-6 of Image to pixel art on an uploaded front image (and,
+  // if given, a side image facing right, whose mirror is the left view), through the same panels and
+  // buttons a person would use, then makes every motion in every direction it has.
+  var QUICK_MOTIONS = [
+    { name: "idle", template: "idle", frames: 8, fps: 6, loop: true },
+    { name: "walk", template: "walk", frames: 8, fps: 10, loop: true },
+    { name: "run", template: "run", frames: 8, fps: 12, loop: true },
+    // a character with a weapon swings it; one without punches
+    { name: "attack", template: (rig) => rig.bones.weapon ? "attack" : "punch" },
+    { name: "defence", template: "block" },
+    { name: "hurt", template: "hurt" },
+    { name: "death", template: "death" }
+  ];
+  var quickBusy = false, quickReport = null;
+  const waitUntil = async (ok, what, ms = 6e4) => {
+    const t0 = Date.now();
+    while (!ok()) {
+      if (Date.now() - t0 > ms) throw new Error(`it stopped at ${what}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  // the side image turned to face left
+  async function mirroredFile(file) {
+    const bm = await createImageBitmap(file), c = document.createElement("canvas");
+    c.width = bm.width;
+    c.height = bm.height;
+    const ctx = c.getContext("2d");
+    ctx.translate(bm.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(bm, 0, 0);
+    bm.close();
+    const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + "-mirrored.png", { type: "image/png" });
+  }
+  // steps 1-5 for one image, on the direction steps 1-7 currently work on
+  async function quickSteps(file, label) {
+    const say = (t) => {
+      $("#qcMsg").textContent = `${label}: ${t}\u2026`;
+    };
+    say("reading the image");
+    await importPanel.load(file);
+    const info = importPanel.info();
+    if (!info || info.name !== file.name) throw new Error(`${file.name} could not be opened (see step 1)`);
+    await waitUntil(() => bgPanel.info(), "the background step");
+    say("removing the background");
+    // the image's own transparency if it has some, else the edge flood-fill (GrabCut needs a download)
+    $("#bgMethod").value = bgPanel.info().resolved === "alpha" ? "alpha" : "flood";
+    $("#bgMethod").dispatchEvent(new Event("change"));
+    const runs = convPanel.info().runs;
+    $("#bgRun").click();
+    say("making pixel art");
+    await waitUntil(() => convPanel.info().runs > runs && !$("#convApply").disabled, "the pixel art step");
+    const view = curView(), restNow = () => view ? viewOf(view).rest : importedAsset && importedAsset.rest, before = restNow();
+    $("#convApply").click();
+    await waitUntil(() => restNow() && restNow() !== before, "using the pixel art as the sprite");
+    say("finding the body parts and joints");
+    await waitUntil(() => partsPanel.readyFor(restNow()) && !$("#ptGuess").disabled, "the body parts step");
+    $("#ptGuess").click();
+    $("#rigSuggest").click();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  async function quickConvert() {
+    const front = $("#qcFront").files[0], side = $("#qcSide").files[0];
+    if (!front || quickBusy) return;
+    quickBusy = true;
+    syncQuick();
+    $("#qcResult").hidden = true;
+    const made = [], skipped = [];
+    try {
+      // the images must open before the current character is let go of
+      for (const f of [front, side].filter(Boolean)) {
+        try {
+          (await createImageBitmap(f)).close();
+        } catch (e) {
+          throw new Error(`${f.name} is not an image that can be opened (PNG or JPEG); nothing was changed`);
+        }
+      }
+      // a fresh character: the old one (if any) was let go of in the guard
+      importedAsset = null;
+      activeDir = null;
+      edited = false;
+      if (TYPES[state.type].rigged || state.type === "imported") {
+        state.type = "character";
+        regenerate();
+      }
+      await quickSteps(front, "Front");
+      setMainDirection("S");
+      if (side) {
+        for (const [d, file, label] of [["E", side, "Side (right)"], ["W", await mirroredFile(side), "Side (left, mirrored)"]]) {
+          addDirection(d);
+          await quickSteps(file, label);
+        }
+        switchDirection(mainDir());
+      }
+      $("#qcMsg").textContent = "Making the animations\u2026";
+      // every direction's working image decoded (its parts are cut from it)
+      await waitUntil(() => directions().every((d) => d.layers), "decoding the images");
+      for (const d of directions()) {
+        const present = presentParts(d.rest, d.layers);
+        for (const m of QUICK_MOTIONS) {
+          let t = templateById(typeof m.template === "function" ? m.template(d.rest.rig) : m.template), chk = checkTemplate(t, d.rest.rig, present);
+          // a weapon not held in a hand in this view: punch instead
+          if (!chk.ok && t.id === "attack") {
+            t = templateById("punch");
+            chk = checkTemplate(t, d.rest.rig, present);
+          }
+          if (!chk.ok) {
+            skipped.push(`${m.name} ${DIRECTION_LABEL[d.dir]}: ${chk.reason}`);
+            continue;
+          }
+          const a = buildTemplate(t, d.rest, d.layers, { facing: FACING_OF[d.dir], ...m.frames ? { frames: m.frames, fps: m.fps, loop: m.loop } : {} });
+          addAnimationTo(d.dir, m.name, a, `${m.name} made by Convert (${t.name}). Every key can be edited here.`);
+          made.push(rowName(m.name, d.dir, mainDir()));
+        }
+      }
+      switchDirection(mainDir());
+      renderDirBar();
+      quickReport = { made, skipped, dirs: directions().map((d) => d.dir), mirrored: side ? ["W"] : [] };
+      $("#qcMsg").textContent = `Done: ${made.length} animations in ${quickReport.dirs.length} direction${quickReport.dirs.length > 1 ? "s" : ""}. Check the frame check and the parts (step 4) if something looks off.`;
+      $("#qcResult").replaceChildren(...[
+        `Directions: ${quickReport.dirs.map((d) => `${DIRECTION_LABEL[d]} (${d})${d === "W" && side ? ", your side image mirrored" : ""}`).join(", ")}.${side ? "" : " Add a side image for left and right."} The back view is not made yet.`,
+        `Rows: ${made.join(", ")}.`,
+        ...skipped.map((t) => `Not made: ${t}`)
+      ].map((t) => Object.assign(document.createElement("li"), { textContent: t })));
+      $("#qcResult").hidden = false;
+      toast(`Converted: ${made.length} animations`);
+    } catch (e) {
+      $("#qcMsg").textContent = /nothing was changed$/.test(e.message) ? `Convert could not start: ${e.message}.` : `Convert could not finish: ${e.message}. The steps below show where; you can carry on by hand.`;
+      quickReport = { error: e.message, made, skipped };
+    } finally {
+      quickBusy = false;
+      syncQuick();
+    }
+  }
+  function syncQuick() {
+    $("#qcGo").disabled = quickBusy || !$("#qcFront").files.length;
+    $("#qcFront").disabled = $("#qcSide").disabled = quickBusy;
+  }
+  for (const id of ["#qcFront", "#qcSide"]) $(id).addEventListener("change", syncQuick);
+  $("#qcGo").addEventListener("click", () => {
+    if (hasImported() || edited) askGuard("Convert makes a new character and replaces the current one (its image, parts, joints and animations). Save the project first to keep it.", quickConvert);
+    else quickConvert();
+  });
   // the 8 directions of a design, turning around, for the variations row
   function chibiThumbFrames(seed) {
     const d = chibiDesign(seed, seed, state.chibiClass);
@@ -20617,6 +20817,9 @@ self.onmessage = async e => {
     },
     get timeline() {
       return timeline;
+    },
+    get quick() {
+      return { busy: quickBusy, report: quickReport };
     },
     get importInfo() {
       return importPanel.info();

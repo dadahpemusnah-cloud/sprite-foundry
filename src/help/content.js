@@ -453,6 +453,18 @@
       ]
     },
     {
+      id: "quick",
+      mode: "foundry",
+      title: "Convert in one click",
+      go: "#quickBox",
+      summary: "From a picture to an animated character in one step.",
+      items: [
+        { ...C("front (needed)", "#qcFront"), text: "A full-body character standing and facing you, PNG or JPEG. A transparent background is used as it is; otherwise the plain background around the character is removed." },
+        { ...C("side, facing right (optional)", "#qcSide"), text: "The same character seen from its right side. It becomes the right view, and its mirror the left view (the result says so). Without it you get the front view only." },
+        { ...C("Convert", "#qcGo"), text: "Runs steps 1 to 6 for you: background, pixel art, body parts (Rough guess), joints (Suggest joints), then idle, walk, run, attack (a swing with a weapon held in a hand, a punch without), defence (Block), hurt and death in every view. It asks first if a character is already there, and stops with a message if an image cannot be opened. The result is an ordinary imported character: check its parts in step 4 and the frame check, and fix by hand what the guess got wrong. Back views are not made yet." }
+      ]
+    },
+    {
       id: "import",
       mode: "foundry",
       title: "1 \xB7 Source image",

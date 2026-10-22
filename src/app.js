@@ -1796,6 +1796,149 @@
     }
     guardDiscard(label, action);
   }
+  // V8.0: Convert in one click. Runs steps 1-6 of Image to pixel art on an uploaded front image (and,
+  // if given, a side image facing right, whose mirror is the left view), through the same panels and
+  // buttons a person would use, then makes every motion in every direction it has.
+  var QUICK_MOTIONS = [
+    { name: "idle", template: "idle", frames: 8, fps: 6, loop: true },
+    { name: "walk", template: "walk", frames: 8, fps: 10, loop: true },
+    { name: "run", template: "run", frames: 8, fps: 12, loop: true },
+    // a character with a weapon swings it; one without punches
+    { name: "attack", template: (rig) => rig.bones.weapon ? "attack" : "punch" },
+    { name: "defence", template: "block" },
+    { name: "hurt", template: "hurt" },
+    { name: "death", template: "death" }
+  ];
+  var quickBusy = false, quickReport = null;
+  const waitUntil = async (ok, what, ms = 6e4) => {
+    const t0 = Date.now();
+    while (!ok()) {
+      if (Date.now() - t0 > ms) throw new Error(`it stopped at ${what}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  // the side image turned to face left
+  async function mirroredFile(file) {
+    const bm = await createImageBitmap(file), c = document.createElement("canvas");
+    c.width = bm.width;
+    c.height = bm.height;
+    const ctx = c.getContext("2d");
+    ctx.translate(bm.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(bm, 0, 0);
+    bm.close();
+    const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + "-mirrored.png", { type: "image/png" });
+  }
+  // steps 1-5 for one image, on the direction steps 1-7 currently work on
+  async function quickSteps(file, label) {
+    const say = (t) => {
+      $("#qcMsg").textContent = `${label}: ${t}\u2026`;
+    };
+    say("reading the image");
+    await importPanel.load(file);
+    const info = importPanel.info();
+    if (!info || info.name !== file.name) throw new Error(`${file.name} could not be opened (see step 1)`);
+    await waitUntil(() => bgPanel.info(), "the background step");
+    say("removing the background");
+    // the image's own transparency if it has some, else the edge flood-fill (GrabCut needs a download)
+    $("#bgMethod").value = bgPanel.info().resolved === "alpha" ? "alpha" : "flood";
+    $("#bgMethod").dispatchEvent(new Event("change"));
+    const runs = convPanel.info().runs;
+    $("#bgRun").click();
+    say("making pixel art");
+    await waitUntil(() => convPanel.info().runs > runs && !$("#convApply").disabled, "the pixel art step");
+    const view = curView(), restNow = () => view ? viewOf(view).rest : importedAsset && importedAsset.rest, before = restNow();
+    $("#convApply").click();
+    await waitUntil(() => restNow() && restNow() !== before, "using the pixel art as the sprite");
+    say("finding the body parts and joints");
+    await waitUntil(() => partsPanel.readyFor(restNow()) && !$("#ptGuess").disabled, "the body parts step");
+    $("#ptGuess").click();
+    $("#rigSuggest").click();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  async function quickConvert() {
+    const front = $("#qcFront").files[0], side = $("#qcSide").files[0];
+    if (!front || quickBusy) return;
+    quickBusy = true;
+    syncQuick();
+    $("#qcResult").hidden = true;
+    const made = [], skipped = [];
+    try {
+      // the images must open before the current character is let go of
+      for (const f of [front, side].filter(Boolean)) {
+        try {
+          (await createImageBitmap(f)).close();
+        } catch (e) {
+          throw new Error(`${f.name} is not an image that can be opened (PNG or JPEG); nothing was changed`);
+        }
+      }
+      // a fresh character: the old one (if any) was let go of in the guard
+      importedAsset = null;
+      activeDir = null;
+      edited = false;
+      if (TYPES[state.type].rigged || state.type === "imported") {
+        state.type = "character";
+        regenerate();
+      }
+      await quickSteps(front, "Front");
+      setMainDirection("S");
+      if (side) {
+        for (const [d, file, label] of [["E", side, "Side (right)"], ["W", await mirroredFile(side), "Side (left, mirrored)"]]) {
+          addDirection(d);
+          await quickSteps(file, label);
+        }
+        switchDirection(mainDir());
+      }
+      $("#qcMsg").textContent = "Making the animations\u2026";
+      // every direction's working image decoded (its parts are cut from it)
+      await waitUntil(() => directions().every((d) => d.layers), "decoding the images");
+      for (const d of directions()) {
+        const present = presentParts(d.rest, d.layers);
+        for (const m of QUICK_MOTIONS) {
+          let t = templateById(typeof m.template === "function" ? m.template(d.rest.rig) : m.template), chk = checkTemplate(t, d.rest.rig, present);
+          // a weapon not held in a hand in this view: punch instead
+          if (!chk.ok && t.id === "attack") {
+            t = templateById("punch");
+            chk = checkTemplate(t, d.rest.rig, present);
+          }
+          if (!chk.ok) {
+            skipped.push(`${m.name} ${DIRECTION_LABEL[d.dir]}: ${chk.reason}`);
+            continue;
+          }
+          const a = buildTemplate(t, d.rest, d.layers, { facing: FACING_OF[d.dir], ...m.frames ? { frames: m.frames, fps: m.fps, loop: m.loop } : {} });
+          addAnimationTo(d.dir, m.name, a, `${m.name} made by Convert (${t.name}). Every key can be edited here.`);
+          made.push(rowName(m.name, d.dir, mainDir()));
+        }
+      }
+      switchDirection(mainDir());
+      renderDirBar();
+      quickReport = { made, skipped, dirs: directions().map((d) => d.dir), mirrored: side ? ["W"] : [] };
+      $("#qcMsg").textContent = `Done: ${made.length} animations in ${quickReport.dirs.length} direction${quickReport.dirs.length > 1 ? "s" : ""}. Check the frame check and the parts (step 4) if something looks off.`;
+      $("#qcResult").replaceChildren(...[
+        `Directions: ${quickReport.dirs.map((d) => `${DIRECTION_LABEL[d]} (${d})${d === "W" && side ? ", your side image mirrored" : ""}`).join(", ")}.${side ? "" : " Add a side image for left and right."} The back view is not made yet.`,
+        `Rows: ${made.join(", ")}.`,
+        ...skipped.map((t) => `Not made: ${t}`)
+      ].map((t) => Object.assign(document.createElement("li"), { textContent: t })));
+      $("#qcResult").hidden = false;
+      toast(`Converted: ${made.length} animations`);
+    } catch (e) {
+      $("#qcMsg").textContent = /nothing was changed$/.test(e.message) ? `Convert could not start: ${e.message}.` : `Convert could not finish: ${e.message}. The steps below show where; you can carry on by hand.`;
+      quickReport = { error: e.message, made, skipped };
+    } finally {
+      quickBusy = false;
+      syncQuick();
+    }
+  }
+  function syncQuick() {
+    $("#qcGo").disabled = quickBusy || !$("#qcFront").files.length;
+    $("#qcFront").disabled = $("#qcSide").disabled = quickBusy;
+  }
+  for (const id of ["#qcFront", "#qcSide"]) $(id).addEventListener("change", syncQuick);
+  $("#qcGo").addEventListener("click", () => {
+    if (hasImported() || edited) askGuard("Convert makes a new character and replaces the current one (its image, parts, joints and animations). Save the project first to keep it.", quickConvert);
+    else quickConvert();
+  });
   // the 8 directions of a design, turning around, for the variations row
   function chibiThumbFrames(seed) {
     const d = chibiDesign(seed, seed, state.chibiClass);
@@ -2830,6 +2973,9 @@
     },
     get timeline() {
       return timeline;
+    },
+    get quick() {
+      return { busy: quickBusy, report: quickReport };
     },
     get importInfo() {
       return importPanel.info();

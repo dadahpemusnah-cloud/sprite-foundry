@@ -483,6 +483,33 @@
       { t: 3, ease: "step", pose: guard(1, 0) }
     ] }, weaponReach(rig));
   }
+  // V8.0: an attack without a weapon (most uploaded characters carry none): the free arm guards the
+  // face, the other winds back, jabs forwards with a lean and a small step, and comes back
+  function presetPunch(rig, facing = "right", info = null) {
+    const I = infoOr(rig, info);
+    if (facing === "front") {
+      // from the front the jab comes across the body towards the middle at chest height
+      const at2 = (r, fr, k) => grounded(rig, I, pose(rig, { upperArmL: -35 * k, forearmL: -110 * k, upperArmR: r, forearmR: fr, thighL: 4 * k, thighR: -4 * k }));
+      return withReach({ frames: 6, fps: 12, loop: false, facing, ground: [0, 1, 2, 3, 4, 5], keys: [
+        { t: 0, ease: "easeInOut", pose: pose(rig) },
+        { t: 1, ease: "easeIn", pose: at2(-20, 90, 1) },
+        { t: 2, ease: "easeOut", pose: at2(70, 40, 1) },
+        { t: 3, ease: "linear", pose: at2(65, 35, 1) },
+        { t: 4, ease: "easeInOut", pose: at2(20, 60, 0.8) },
+        { t: 5, ease: "easeInOut", pose: at2(5, 15, 0.3) }
+      ] }, armsReach(rig));
+    }
+    const d = D(facing), F = -d;
+    const at = (r, fr, k, lean, step2 = 0) => grounded(rig, I, pose(rig, { ...armsSide(F, 40 * k, r, 100 * k, fr), torso: lean * F, head: -lean / 2 * F, thighL: 6 * step2 * F, thighR: -6 * step2 * F }));
+    return withReach({ frames: 6, fps: 12, loop: false, facing, ground: [0, 1, 2, 3, 4, 5], keys: [
+      { t: 0, ease: "easeInOut", pose: pose(rig) },
+      { t: 1, ease: "easeIn", pose: at(-35, 100, 1, -3) },
+      { t: 2, ease: "easeOut", pose: at(88, 0, 1, 8, 1) },
+      { t: 3, ease: "linear", pose: at(85, 5, 1, 7, 1) },
+      { t: 4, ease: "easeInOut", pose: at(30, 60, 0.8, 2) },
+      { t: 5, ease: "easeInOut", pose: at(10, 15, 0.3, 0) }
+    ] }, armsReach(rig));
+  }
   function presetCast(rig, facing = "right", info = null) {
     const I = infoOr(rig, info);
     if (facing === "front") {
@@ -695,6 +722,7 @@
     wave: presetWave,
     block: presetBlock,
     cast: presetCast,
+    punch: presetPunch,
     bow: presetBow,
     climb: presetClimb,
     push: presetPush,

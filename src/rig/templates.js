@@ -45,6 +45,7 @@
     },
     // library v2 (phase U7): top-down and side-scroller motions, each with a side and a front view
     { id: "block", preset: "block", name: "Block", category: "combat", description: "The arms come up in front of the face, the knees give, the body takes the hit and holds the guard.", requires: () => ARMS },
+    { id: "punch", preset: "punch", name: "Punch", category: "combat", description: "An attack without a weapon: the free arm guards the face, the other winds back, jabs forwards with a lean and a small step, and comes back.", requires: () => ARMS },
     { id: "cast", preset: "cast", name: "Cast", category: "combat", description: "Both arms draw back, rise and thrust forwards (from the front: up, then out to the sides), with a lean into it.", requires: () => ARMS },
     { id: "bow", preset: "bow", name: "Bow shot", category: "combat", description: "The bow arm holds out at shoulder height, the other draws to the face, holds, lets go and comes down.", requires: () => ARMS },
     { id: "climb", preset: "climb", name: "Climb", category: "movement", description: "On the spot: one arm reaches up while the other pulls, the opposite knee comes up. Feet leave the ground.", requires: () => [...ARMS, ...LEGS] },
