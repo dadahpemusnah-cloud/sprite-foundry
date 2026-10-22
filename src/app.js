@@ -149,6 +149,7 @@
     }));
   }
   function syncControls() {
+    $("#dirNames").value = state.dirNames;
     seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => guardDiscard("Changing the sprite type", () => {
       state.type = v;
       regenerate();
@@ -1252,6 +1253,36 @@
     for (const p of plan.layout.placements) blit(ctx, frameIn(p.anim, p.frame, variant).cv, p.x, p.y, scale);
     return { cv, ...plan };
   }
+  var SCREEN_NAME = { S: "down", N: "up", W: "left", E: "right", SE: "down_right", SW: "down_left", NE: "up_right", NW: "up_left" };
+  // the exported name of each row: with screen direction names, an animation drawn in several
+  // directions goes out as name_down, name_up, name_left, name_right (not name, name_n, name_w, name_e);
+  // a name that would clash with another row keeps its own
+  function exportNames() {
+    const map = /* @__PURE__ */ new Map();
+    if (state.dirNames !== "screen") return map;
+    const taken = new Set(timeline.order);
+    for (const set of directionSets() || []) for (const r of set.rows) {
+      const to = `${set.name}_${SCREEN_NAME[r.dir]}`;
+      if (to !== r.row && !taken.has(to)) map.set(r.row, to);
+    }
+    return map;
+  }
+  // what the exporters see: the pack context, the rows and frame pixels under their exported names
+  function exportView() {
+    const ctx = packCtx(), m = exportNames(), to = (n) => m.get(n) || n;
+    const back = new Map([...m].map(([a, b]) => [b, a])), from = (n) => back.get(n) || n;
+    const pixel = (n, i) => framesFor(from(n))[i].out;
+    if (!m.size) return { ctx, to, from, pixel, rows: sheetRows() };
+    const tl = { ...timeline, order: timeline.order.map(to), anims: Object.fromEntries(Object.entries(timeline.anims).map(([k, v]) => [to(k), v])) };
+    return { ctx: { ...ctx, timeline: tl, rows: ctx.rows.map(to) }, to, from, pixel, rows: sheetRows().map(to) };
+  }
+  // names inside the source notes (manifest) follow the exported names too
+  function renameSource(src, to) {
+    if (!src) return src;
+    const out = { ...src, animatedByRig: (src.animatedByRig || []).map(to), editedFrames: (src.editedFrames || []).map((e) => ({ ...e, animation: to(e.animation) })), notInImage: (src.notInImage || []).map((e) => ({ ...e, animation: to(e.animation) })) };
+    if (src.directions) out.directions = src.directions.map((d) => ({ ...d, rows: d.rows.map(to) }));
+    return out;
+  }
   var STEADY = /^(idle|walk)/;
   function bodyMeasure() {
     if (!(sprite2.type === "imported" && sprite2.rigFrame && sprite2.rigFrame.result)) return null;
@@ -2019,13 +2050,14 @@
   });
   $("#jsonBtn").addEventListener("click", () => {
     if (!needRows()) return;
-    saveFile(baseName() + ".json", new Blob([JSON.stringify(buildSheet(state.scale).json, null, 2)], { type: "application/json" }));
+    const ev = exportView();
+    saveFile(baseName() + ".json", new Blob([JSON.stringify(sheetPlan(ev.ctx, state.scale, ev.rows).json, null, 2)], { type: "application/json" }));
   });
   async function asepriteFile() {
-    const rows = sheetRows(), anims = {};
+    const ev = exportView(), rows = ev.rows, anims = {};
     for (const n of rows) {
-      const a = timeline.anims[n];
-      anims[n] = { mode: modeOf(a), loop: a.loop, repeat: repeatOf(a), frames: a.frames.map((fr, i) => ({ px: framesFor(n)[i].out, dur: frameDurationMs(timeline, n, i, state.fps), data: fr.data || null })) };
+      const a = timeline.anims[ev.from(n)];
+      anims[n] = { mode: modeOf(a), loop: a.loop, repeat: repeatOf(a), frames: a.frames.map((fr, i) => ({ px: ev.pixel(n, i), dur: frameDurationMs(timeline, ev.from(n), i, state.fps), data: fr.data || null })) };
     }
     return writeAseprite(framesToAseprite({ F: frameSize(), rows, anims }), deflate);
   }
@@ -2033,7 +2065,7 @@
     if (!needRows()) return;
     await saveFile(baseName() + ".aseprite", new Blob([await asepriteFile()], { type: "application/octet-stream" }));
   });
-  $("#gifBtn").addEventListener("click", () => noErrors() && saveFile(`${baseName()}${shownName()}_${anim}.gif`, gifFor(anim, state.scale, curVariant())));
+  $("#gifBtn").addEventListener("click", () => noErrors() && saveFile(`${baseName()}${shownName()}_${exportView().to(anim)}.gif`, gifFor(anim, state.scale, curVariant())));
   function cutoutScenes(base, rows) {
     const ia = sprite2 && sprite2.type === "imported" ? iaOf() : null;
     return ia ? importedCutout(packCtx(), ia, rows, base) : [];
@@ -2046,8 +2078,8 @@
     return c;
   }
   async function buildExport(preset) {
-    const rows = sheetRows(), cut = PRESETS2[preset] && PRESETS2[preset].godot ? cutoutScenes(baseName(), rows) : [];
-    const { plan, out } = buildPack(packCtx(), preset, { source: sourceNotes(rows), cutout: cut, pixel: (n, i) => framesFor(n)[i].out });
+    const rows = sheetRows(), cut = PRESETS2[preset] && PRESETS2[preset].godot ? cutoutScenes(baseName(), rows) : [], ev = exportView();
+    const { plan, out } = buildPack(ev.ctx, preset, { source: renameSource(sourceNotes(rows), ev.to), cutout: cut, pixel: ev.pixel });
     const files = [];
     for (const [path, data] of out) files.push([path, data.raster ? await canvasBlob(rasterCanvas(data.raster)) : data instanceof Uint8Array ? new Blob([data], { type: "image/gif" }) : data]);
     return { plan, out: files };
@@ -2065,6 +2097,11 @@
   $("#zipBtn").addEventListener("click", () => exportPreset("full"));
   $("#exportPreset").replaceChildren(...Object.entries(PRESETS2).map(([k, p]) => new Option(p.label, k)));
   $("#presetBtn").addEventListener("click", () => exportPreset($("#exportPreset").value));
+  $("#dirNames").addEventListener("change", (e) => {
+    state.dirNames = e.target.value === "screen" ? "screen" : "compass";
+    saveState();
+    markProjectDirty();
+  });
   if (!window.JSZip) for (const id of ["#zipBtn", "#presetBtn"]) {
     $(id).disabled = true;
     $(id).title = "Zip library unavailable";

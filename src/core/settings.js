@@ -21,7 +21,10 @@
     onionTint: "none",
     onionOpacity: 0.3,
     // V1: the live preview's size (1×, 2× or 4× the frame)
-    previewScale: 2
+    previewScale: 2,
+    // V6: exported names of an animation drawn in several directions: "compass" walk, walk_n, walk_w, walk_e;
+    // "screen" walk_down, walk_up, walk_left, walk_right
+    dirNames: "compass"
   };
   var SIZES = [12, 16, 24, 32];
   var SCALES = [1, 2, 4, 8];
@@ -51,6 +54,7 @@
     if (saved.onionTint === "none" || saved.onionTint === "redblue") s.onionTint = saved.onionTint;
     if (typeof saved.onionOpacity === "number" && saved.onionOpacity >= 0.1 && saved.onionOpacity <= 0.9) s.onionOpacity = Math.round(saved.onionOpacity * 20) / 20;
     if ([1, 2, 4].includes(saved.previewScale)) s.previewScale = saved.previewScale;
+    if (saved.dirNames === "compass" || saved.dirNames === "screen") s.dirNames = saved.dirNames;
     if (Array.isArray(saved.customPalette)) {
       const seen = [];
       for (const c of saved.customPalette) if (typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c) && !seen.includes(c.toLowerCase())) seen.push(c.toLowerCase());

@@ -571,6 +571,8 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
           </select>
           <button id="presetBtn" type="button">Export .zip</button>
         </div>
+        <label class="field" for="dirNames">direction names <select id="dirNames" style="width:auto;max-width:100%"><option value="compass">compass: walk, walk_n, walk_w, walk_e</option><option value="screen">screen: walk_down, walk_up, walk_left, walk_right</option></select></label>
+        <p class="hint">Direction names apply to an animation drawn in several directions (Image to pixel art, Direction) in every export: atlas tags, manifest, GIFs, Aseprite tags and the Godot and Unity packs.</p>
         <p class="hint">Every preset uses the selected rows and scale and includes manifest.json, which lists each file with its pixel size, the frame size, fps, loop and pivot.</p>
       </div>
       <p class="hint">The JSON uses the Aseprite hash layout with frames keyed "0", "1", … and one frame tag per row. In Phaser: <span class="mono">load.aseprite()</span> then <span class="mono">anims.createFromAseprite()</span>.</p>

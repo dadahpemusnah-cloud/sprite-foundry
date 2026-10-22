@@ -1,6 +1,6 @@
 # Sprite Foundry — V6 plan (draft)
 
-Status: **in progress** (stages 0–4 done). Written 2026-10-22.
+Status: **in progress** (stages 0–5 done; V6.0 walk feature complete, not yet republished). Written 2026-10-22.
 Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
 "Auto Animate — four-direction walk" request.
 
@@ -21,6 +21,11 @@ Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
   to the first (outline movement against the steps inside), and when a frame's four corners are
   filled. `tests/frame-check.mjs` also checks there are no false alarms on built-in sprites or a
   clean walk.
+- **Stage 5 done**: export setting "direction names" (compass by default, or screen:
+  walk_down/up/left/right), applied to the atlas, manifest, GIFs, Aseprite tags, Godot and Unity packs,
+  and saved with projects. `tests/phaser-walk.mjs` loads the exported atlas in Phaser 3.90.0 (and
+  passes with 4.2.1): 12 frames in sheet order, 1.2 s loops, looping when played as the export README
+  says (createFromAseprite itself sets no repeat; the README already covered that).
 - Noted for stage 7: the page is 5 px wider than a 390 px phone screen (export preset menu and
   some canvases); this predates V6.
 
