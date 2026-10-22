@@ -3,10 +3,12 @@
   function initConvertPanel({ $: $2, importPanel: importPanel2, bgPanel: bgPanel2 }) {
     const canvas = $2("#convCanvas"), view = $2("#convView");
     const st = { ...DEFAULTS2, view: "pixel", split: 50, locked: null, result: null, src: null, runs: 0 };
-    let timer = 0;
+    let timer = 0, pending = false;
     const listeners = [];
     function schedule() {
       clearTimeout(timer);
+      pending = true;
+      $2("#convApply").disabled = true; // until this conversion has run
       timer = setTimeout(convert, 120);
     }
     bgPanel2.onChange(schedule);
@@ -21,6 +23,7 @@
     }
     function convert() {
       clearTimeout(timer);
+      pending = false;
       const bg = bgPanel2.result();
       $2("#convWork").hidden = !importPanel2.session.bitmap;
       if (!bg) {
@@ -225,7 +228,12 @@
       },
       pixels: () => st.result ? st.result.px.slice() : null,
       // for the imported character type (phase I4)
-      result: () => st.result
+      // a conversion still waiting on its timer runs first, so "Use as sprite" never takes the
+      // previous image's pixel art
+      result: () => {
+        if (pending) convert();
+        return st.result;
+      }
     };
   }
 

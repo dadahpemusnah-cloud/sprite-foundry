@@ -36,6 +36,12 @@
         draw();
         return;
       }
+      // until this image is decoded, the previous image's pixels and parts must not be edited: a
+      // Rough guess in between would save them to this direction
+      st.rgba = null;
+      st.seg = null;
+      sync();
+      draw();
       const img = new Image();
       img.src = rest.work.dataUrl;
       try {

@@ -1,8 +1,19 @@
 # Sprite Foundry — V6 plan (draft)
 
-Status: **draft, awaiting approval**. Written 2026-10-22.
+Status: **in progress** (stages 0–2 done). Written 2026-10-22.
 Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
 "Auto Animate — four-direction walk" request.
+
+## Progress
+
+- **Stage 0 done**: `src/` split from the bundle, byte-identical build, `npm run check:build`.
+- **Stage 1 done**: export baseline (613 files), editor smoke, diagonal-message fix, Godot check on
+  all 7 presets and a side view, 8/8 mutants caught.
+- **Stage 2 done**: Auto Animate panel (step 6). Found and fixed two existing races that made
+  multi-direction rigs nondeterministic: Rough guess and Use as sprite could act on the previous
+  direction's image while the new one was still decoding or converting (`tests/direction-switch.mjs`).
+- Noted for stage 7: the page is 5 px wider than a 390 px phone screen (export preset menu and
+  some canvases); this predates V6.
 
 ## Basis
 

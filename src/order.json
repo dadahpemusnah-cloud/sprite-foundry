@@ -75,6 +75,7 @@
  "src/core/ramp.js",
  "src/ui/workshop-panel.js",
  "src/ui/template-panel.js",
+ "src/ui/auto-animate.js",
  "src/ui/preflight-panel.js",
  "src/help/content.js",
  "src/ui/help-panel.js",

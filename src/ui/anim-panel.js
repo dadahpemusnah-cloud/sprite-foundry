@@ -439,6 +439,15 @@
         st.frame = 0;
         commit(withAnim2(name, a), name, note);
       },
+      // set or (a = null) remove an animation from elsewhere (Auto Animate): one undo step here
+      put(name, a, note) {
+        if (a) return this.add(name, a, note);
+        const next = { ...anims() };
+        delete next[name];
+        stop();
+        st.frame = 0;
+        commit(next, st.name === name ? Object.keys(next)[0] || null : st.name, note);
+      },
       select(name) {
         if (!anims()[name]) return;
         stop();

@@ -183,6 +183,10 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 #rigInfo.warn{color:var(--err)}
 #rigCanvas{cursor:pointer;touch-action:none}
 .an-tabs{margin:2px 0 8px}
+.auto-anim{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0 10px}
+.auto-anim summary{cursor:pointer}
+.aa-view{min-height:0;max-height:none;justify-items:start;overflow-x:auto}
+.aa-view canvas{image-rendering:pixelated;cursor:default}
 .dir-bar{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0 10px;background:var(--panel)}
 .tm-work{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:860px){.tm-work{grid-template-columns:minmax(0,1fr)}}
@@ -819,6 +823,32 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
         <ul class="pf-list" id="pfList"></ul>
         <p class="hint">Checks the parts, joints and rest pose before you animate. "Needs attention" items do not stop you; each button opens the step that fixes it.</p>
       </div>
+      <details class="group auto-anim" id="aaPanel" open>
+        <summary class="label">Auto Animate · four directions</summary>
+        <div class="row">
+          <label class="field" for="aaMotion">motion <select id="aaMotion"><option value="walk">Walk</option></select></label>
+          <span class="hint">Procedural: the rig's walk, made for each direction from that direction's own image.</span>
+        </div>
+        <ul class="tm-dirs" id="aaDirs" aria-label="Directions to animate"></ul>
+        <div class="row">
+          <label class="field" for="aaFrames">frames per direction <input type="number" id="aaFrames" min="1" max="64" step="1" value="12" style="width:4.5em"></label>
+          <label class="field" for="aaFps">speed <input type="number" id="aaFps" min="1" max="60" step="1" value="10" style="width:4.5em"> fps</label>
+          <label class="field" for="aaName">name <input type="text" id="aaName" value="walk" maxlength="24" style="width:8em" spellcheck="false"></label>
+          <span class="hint mono" id="aaTiming"></span>
+        </div>
+        <div class="row">
+          <button id="aaPreview" type="button">Preview</button>
+          <button id="aaPlay" type="button" disabled>Play</button>
+          <button id="aaApply" type="button" class="primary">Apply</button>
+          <button id="aaUndo" type="button" disabled>Undo</button>
+          <button id="aaRedo" type="button" disabled>Redo</button>
+          <span class="hint mono" id="aaFrameLabel"></span>
+        </div>
+        <div class="import-view bg-checker aa-view" id="aaView" hidden><canvas id="aaCanvas" width="1" height="1" aria-label="Preview of every chosen direction, in the order down, up, left, right"></canvas></div>
+        <ul class="hint an-warn" id="aaWarn"></ul>
+        <p class="hint" id="aaMsg" role="status"></p>
+        <p class="hint">Each direction needs its own image with parts and joints: the app does not invent a back or side view. Applying adds an ordinary animation per direction that you can edit in Manual or frame by frame; an existing animation of the same name is only replaced after you confirm. The frame check catches gaps, ground and jumps, not whether the walk looks natural: watch the preview for sliding feet and crossing limbs.</p>
+      </details>
       <div class="seg an-tabs" id="anTabs" role="group" aria-label="Animation mode">
         <button type="button" data-tab="manual" aria-pressed="true">Manual</button>
         <button type="button" data-tab="template" aria-pressed="false">Template Motion</button>

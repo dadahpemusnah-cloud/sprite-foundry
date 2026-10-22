@@ -20,10 +20,12 @@
   var autosaveFailed = false;
   var AUTOSAVE_KEY = "sprite-foundry-project";
   var templatePanel = null;
+  var autoAnimate = null;
   var preflightPanel = null;
   function refreshAnimStep(rest) {
     animPanel.refresh(rest);
     if (templatePanel) templatePanel.refresh(rest);
+    if (autoAnimate) autoAnimate.refresh();
   }
   var sprite2;
   var anim;
@@ -1589,13 +1591,15 @@
     }
     return out;
   }
+  // sets animation `name` of direction `dir` to `a`, or removes it when `a` is null
   function addAnimationTo(dir, name, a, note) {
     if (dir === (curView() || mainDir())) {
-      animPanel.add(name, a, note);
+      animPanel.put(name, a, note);
       return;
     }
     const view = dir === mainDir() ? null : dir, rec = view ? viewOf(view) : importedAsset;
     rec.rest.anims = { ...rec.rest.anims || {}, [name]: a };
+    if (!a) delete rec.rest.anims[name];
     const v = (rec.history || []).find((h) => h.work && rec.rest.work && h.work.dataUrl === rec.rest.work.dataUrl && h.px.join() === rec.rest.px.join());
     if (v) v.anims = rec.rest.anims;
     animsToTimeline([name], view);
@@ -2323,6 +2327,17 @@
       }
     }
   });
+  autoAnimate = initAutoAnimate({
+    $,
+    directions,
+    F: frameSize,
+    frameOf: (spec) => framePixels(sprite2, { spec, px: null, dur: null }, opts()),
+    setAnim: addAnimationTo,
+    handEdited: (dir, name) => {
+      const t = timeline.anims[rowName(name, dir, mainDir())];
+      return !!(t && t.frames.some((f) => f.px));
+    }
+  });
   preflightPanel = initPreflightPanel({ $, onFix: preflightFix });
   runPreflight();
   var playPos = 0;
@@ -2637,6 +2652,9 @@
     },
     get animInfo() {
       return animPanel.info();
+    },
+    get autoAnimate() {
+      return autoAnimate.info();
     },
     get templateInfo() {
       return templatePanel.info();
