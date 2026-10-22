@@ -9,6 +9,9 @@
     { id: "sneak", fps: 8 }
   ];
   var CHIBI_FRAMES = 8;
+  // V7.1: the combat motion that goes with the gear (none without gear)
+  var chibiCombat = (d) => d.weapon === "staff" ? { id: "cast", fps: 10 } : d.weapon !== "none" ? { id: "attack", fps: 12 } : d.offhand === "bow" ? { id: "bow", fps: 10 } : null;
+  var CHIBI_EXTRA_PARTS = { shield: "shield", bow: "bow" };
   var chibiSettings = (palette) => ({ ...DEFAULTS2, height: CHIBI_N, headroom: 0, floor: 0, resample: "exact", cleanup: false, dither: false, contrast: 0, saturation: 0, locked: palette.slice() });
   // png(rgba, w, h) -> { bytes, base64 } and workImage(work) -> { dataUrl, size } come from the page
   function chibiDirection(d, dir, { png, workImage: workImage2 }) {
@@ -25,7 +28,7 @@
     const r = convertToPixelArt(img, mask, { ...settings, paletteColours: palette, place: { anchor: "bottom", offsetX: 0, offsetY: 0 } });
     const S = r.work.size, B = S / N, rgba = workToRGBA(r.work);
     // parts: each work pixel belongs to the part drawn in front at its sprite pixel
-    const parts = DEFAULT_PARTS.map((p) => ({ ...p, missing: !v.layers[p.id] }));
+    const parts = [...DEFAULT_PARTS.map((p) => ({ ...p, missing: !v.layers[p.id] })), ...Object.entries(CHIBI_EXTRA_PARTS).filter(([id]) => v.layers[id]).map(([id, label]) => ({ id, label, missing: false, userMade: false }))];
     const index = Object.fromEntries(parts.map((p, i) => [p.id, i + 1])), map = new Uint8Array(S * S);
     for (let t = 0; t < S * S; t++) {
       if (rgba[t * 4 + 3] < 128) continue;
@@ -35,16 +38,20 @@
     const seg2 = { size: S, parts, map, extras: [] };
     const rig = syncRig(seg2);
     for (const [id, [x, y]] of Object.entries(v.joints)) if (rig.bones[id]) rig.bones[id] = { ...rig.bones[id], pivot: [x * B, y * B], auto: false };
+    // gear hangs from its hand: the weapon from the right, a shield or bow from the left
+    for (const [id, hand] of [["weapon", "handR"], ["shield", "handL"], ["bow", "handL"]]) if (v.layers[id] && rig.bones[id]) rig.bones[id].parent = hand;
     // the drawing order of the view; parts it does not draw (the weapon) stay listed, at the back
     rig.order = [...rig.order.filter((id) => !v.order.includes(id)), ...v.order.filter((id) => rig.bones[id])];
     const art = { swaps: {}, holes: hidden };
     const rest = { N, palette: r.fullPalette.slice(), px: r.px.slice(), work: workImage2(r.work), settings, seg: seg2, rig, art };
     const L = prepareLayers(seg2, rgba, rig, art, N), anims = {};
-    for (const m of CHIBI_MOTIONS) {
-      const a = JSON.parse(JSON.stringify(buildTemplate(templateById(m.id), rest, L, { facing: FACING_OF[dir], frames: CHIBI_FRAMES, fps: m.fps, loop: true })));
+    const combat = chibiCombat(d);
+    for (const m of combat ? [...CHIBI_MOTIONS, combat] : CHIBI_MOTIONS) {
+      const loop = m !== combat;
+      const a = JSON.parse(JSON.stringify(buildTemplate(templateById(m.id), rest, L, { facing: FACING_OF[dir], frames: CHIBI_FRAMES, fps: m.fps, loop })));
       // a chibi's big head stays nearly level when the body leans (it reads as falling otherwise)
       for (const k of a.keys) if (k.pose.rot.torso) k.pose.rot.head = Math.round(((k.pose.rot.head || 0) - k.pose.rot.torso * 0.75) * 10) / 10 || void 0;
-      anims[m.id] = JSON.parse(JSON.stringify(a));
+      anims[m.id] = JSON.parse(JSON.stringify(chibiUnclip(a, rest, L)));
     }
     rest.anims = anims;
     const file = png(img.data, N, N), name = `chibi-${d.shape}-${dir.toLowerCase()}.png`;
@@ -58,9 +65,26 @@
     };
     return { rest, work, rgba, layers: L, drawn: px };
   }
+  // V7.1: a chibi's arms are long for its 32 px box: if any frame cuts something off at the edge (an arm
+  // held straight out with a bow, a sword swung wide), the arm turns are scaled down in 10% steps until
+  // nothing is cut off (at most to half)
+  function chibiUnclip(a, rest, L) {
+    const render = (p) => renderRig(L, rest.rig, p, { N: rest.N, palette: rest.palette, settings: rest.settings || void 0 });
+    const cut = (anim2) => sampleAnim(anim2).some(({ pose: pose2 }) => Object.keys(render(pose2).stats.clipped || {}).length);
+    if (!cut(a)) return a;
+    for (let f = 0.9; f >= 0.5 - 1e-9; f -= 0.1) {
+      const b = { ...a, keys: a.keys.map((k) => {
+        const p = clonePose(k.pose);
+        for (const id of Object.keys(p.rot)) if (/^(upperArm|forearm|hand)[LR]$/.test(id)) p.rot[id] = Math.round(p.rot[id] * f * 10) / 10;
+        return { ...k, pose: p };
+      }) };
+      if (!cut(b) || f < 0.55) return b;
+    }
+    return a;
+  }
   // the whole character: S is the main image, the other 7 directions are views
-  function chibiAsset(shapeSeed, colourSeed, page) {
-    const d = chibiDesign(shapeSeed, colourSeed), out = {};
+  function chibiAsset(shapeSeed, colourSeed, page, cls = "random") {
+    const d = chibiDesign(shapeSeed, colourSeed, cls), out = {};
     for (const dir of DIRECTIONS) out[dir] = chibiDirection(d, dir, page);
     const views = {};
     for (const dir of DIRECTIONS) if (dir !== "S") views[dir] = { direction: dir, work: out[dir].work, rest: out[dir].rest, history: [] };

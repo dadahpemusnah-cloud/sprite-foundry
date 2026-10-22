@@ -221,6 +221,7 @@
     $("#editBadge").hidden = !editMode;
     syncOnion();
     renderLayers();
+    renderChibiPanel();
   }
   function renderAnimSeg() {
     seg($("#animSeg"), timeline.order.map((n) => [n, n]), anim, (v) => {
@@ -1678,6 +1679,25 @@
   // chibi-asset.js); changing its seeds draws it again. chibiChanged: its parts, joints, drawings or
   // animations were edited since it was made, so drawing it again asks first.
   var chibiChanged = false;
+  var lastChibi = null;
+  function renderChibiPanel() {
+    const on = state.type === "chibi";
+    $("#chibiGroup").hidden = !on;
+    if (!on) return;
+    const sel = $("#chibiClass");
+    if (!sel.options.length) sel.append(new Option("Random class", "random"), ...Object.entries(CHIBI_CLASSES).map(([k, c]) => new Option(c.label, k)));
+    sel.value = state.chibiClass;
+    const d = lastChibi || chibiDesign(state.shape, state.color, state.chibiClass);
+    $("#chibiInfo").textContent = d ? `${CHIBI_CLASSES[d.cls].label}: ${d.hair} hair${d.hat !== "none" ? ", " + d.hat : ""}, ${d.outfit} outfit, ${d.eyes} eyes${d.glasses ? ", glasses" : ""}${d.weapon !== "none" ? ", " + d.weapon : ""}${d.offhand !== "none" ? ", " + d.offhand : ""}${d.build ? ", stocky" : ""}` : "";
+  }
+  $("#chibiClass").addEventListener("change", (e) => {
+    const v = e.target.value;
+    guardChibi("Changing the class", () => {
+      state.chibiClass = v;
+      saveState();
+      makeChibi();
+    });
+  });
   function pngOf(rgba, w2, h) {
     const c = document.createElement("canvas");
     c.width = w2;
@@ -1688,7 +1708,8 @@
     return { bytes, base64 };
   }
   function makeChibi() {
-    const built = chibiAsset(state.shape, state.color, { png: pngOf, workImage });
+    const built = chibiAsset(state.shape, state.color, { png: pngOf, workImage }, state.chibiClass);
+    lastChibi = built.design;
     for (const r of Object.values(built.directions)) workRGBA.set(r.rest.work.dataUrl, r.rgba);
     importedAsset = built.asset;
     activeDir = null;
@@ -1702,7 +1723,9 @@
     renderDirBar();
     if (templatePanel) templatePanel.refresh(curRest());
     chibiChanged = false;
-    toast(`Chibi "${built.design.shape}": ${built.design.hair} hair, ${built.design.outfit} outfit \xB7 8 directions \xB7 ${CHIBI_MOTIONS.map((m) => m.id).join(", ")}`);
+    renderChibiPanel();
+    const combat = chibiCombat(built.design);
+    toast(`Chibi "${built.design.shape}": ${CHIBI_CLASSES[built.design.cls].label} \xB7 8 directions \xB7 ${[...CHIBI_MOTIONS, ...combat ? [combat] : []].map((m) => m.id).join(", ")}`);
   }
   var reseed = () => state.type === "chibi" ? makeChibi() : regenerate(true);
   function guardChibi(label, action) {
@@ -1718,7 +1741,7 @@
   }
   // the 8 directions of a design, turning around, for the variations row
   function chibiThumbFrames(seed) {
-    const d = chibiDesign(seed, seed);
+    const d = chibiDesign(seed, seed, state.chibiClass);
     return CIRCLE.map((dir) => {
       const { px } = chibiCompose(chibiView(d, dir)), s = makeSprite("chibi", CHIBI_N), cols = px.filter(Boolean).sort((a, b) => lum(a) - lum(b));
       s.px = px;

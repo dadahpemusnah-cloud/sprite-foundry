@@ -364,7 +364,8 @@
       if (has(rig, "torso")) p.rot.torso = r1(-6 * F);
       return { ...k, pose: grounded(rig, I, p) };
     });
-    return { ...walk, fps: 8, keys };
+    // a weapon in hand is fitted like the run's, so a long blade or staff is not swung out of the frame
+    return { ...walk, fps: 8, ...runReach(rig), keys };
   }
   function presetJump(rig, facing = "right", info = null) {
     const I = infoOr(rig, info), up = Math.max(1, I.top - 2), d = facing === "front" ? 1 : D(facing), F = -d;
@@ -444,16 +445,18 @@
     ] };
   }
   var armsSide = (F, l, r, fl2 = 0, fr = 0) => ({ upperArmL: l * F, upperArmR: r * F, forearmL: fl2 * F, forearmR: fr * F });
+  // V7.1: everything held in a hand (a weapon, a shield, a bow) is kept inside the frame, not only "weapon"
+  const heldParts = (rig) => Object.keys(rig.bones).filter((id) => id !== "weapon" && /^hand[LR]$/.test(rig.bones[id].parent || ""));
   function weaponReach(rig) {
-    const holder = has(rig, "weapon") ? rig.bones.weapon.parent : null;
+    const held = heldParts(rig), holder = has(rig, "weapon") ? rig.bones.weapon.parent : held.length ? rig.bones[held[0]].parent : null;
     if (!holder || !rig.bones[holder]) return null;
     const S = /L$/.test(holder) ? "L" : "R", chain = [];
     for (let b = rig.bones[holder].parent; b && rig.bones[b] && !chain.includes(b); b = rig.bones[b].parent) chain.push(b);
-    return { bones: ["upperArm" + S, "forearm" + S, "hand" + S], parts: ["weapon"], grip: holder, chain };
+    return { bones: ["upperArm" + S, "forearm" + S, "hand" + S], parts: [...has(rig, "weapon") ? ["weapon"] : [], ...held], grip: holder, chain };
   }
   function armsReach(rig) {
     const w2 = weaponReach(rig);
-    return { bones: ["upperArmL", "forearmL", "handL", "upperArmR", "forearmR", "handR"], parts: ["forearmL", "forearmR", "handL", "handR", "weapon"], grip: w2 ? w2.grip : null, chain: w2 ? w2.chain : [] };
+    return { bones: ["upperArmL", "forearmL", "handL", "upperArmR", "forearmR", "handR"], parts: ["forearmL", "forearmR", "handL", "handR", "weapon", ...heldParts(rig)], grip: w2 ? w2.grip : null, chain: w2 ? w2.chain : [] };
   }
   var withReach = (anim2, reach) => reach ? { ...anim2, reach } : anim2;
   function presetBlock(rig, facing = "right", info = null) {

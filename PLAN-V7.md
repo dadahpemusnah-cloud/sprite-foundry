@@ -1,6 +1,6 @@
 # Sprite Foundry — V7 plan (draft): richer generator, real motion, more directions
 
-Status: **V7.0 done** (Chibi in 8 directions). Written 2026-10-22. V6.1 (Unity cutout) is on hold.
+Status: **V7.1 done** (Chibi classes, gear, faces, headwear). Written 2026-10-22. V6.1 (Unity cutout) is on hold.
 
 ## Decisions (2026-10-22)
 1. Reference sheets: open source; used only as motion reference, no pixels copied.
@@ -21,6 +21,19 @@ Status: **V7.0 done** (Chibi in 8 directions). Written 2026-10-22. V6.1 (Unity c
   Tests: `tests/chibi.mjs`; all 14 groups pass with Godot 4.3; export baseline unchanged.
   Limits: Frame check keeps up to 5 "held frame" warnings on idle; the chibi's Godot cutout scenes are
   written but not loaded in Godot by the tests (the Godot test imports an image).
+- **V7.1 done**: Chibi class picker (Villager, Knight, Mage, Archer, Rogue, Warrior, Zombie, Random).
+  Headwear: cap, helmet, pointed hat, hood, headband, bandana. Faces: 4 eye styles, 3 mouths, glasses,
+  freckles, blush. Normal or stocky build. Gear: sword, axe, dagger or staff in the right hand, shield or
+  bow in the left, drawn after mirroring so it stays in its own hand, rigged to that hand (shield and
+  bow are parts of their own). A class with gear gets attack, cast or bow (8 frames) in all 8
+  directions. Nothing is drawn above row 3, so a run's lift is not cut off. Run, sneak and every
+  motion that fits a held item now keep any part held in a hand (not only "weapon") inside the frame;
+  a chibi motion that still cuts something off has its arm turns scaled down (to at most half).
+  Tests: tests/chibi.mjs checks every class in every direction (gear touches its hand, rows 3-30),
+  combat motions, and a frame check with nothing but held idle and bow frames; sweeps of 7 classes ×
+  7 seeds and 12 random seeds gave 0 warnings. All 14 groups pass with Godot 4.3; export baseline
+  unchanged. Making a chibi now takes about 5 s.
+  Known: the archer is always of normal build (a stocky one's bow left the frame when the arm was held out).
 
 ## The request
 1. Is the generator limited to the sprites it makes today (Character, Creature, Ship, Item, RPG Hero)?

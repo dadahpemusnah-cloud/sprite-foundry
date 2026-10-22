@@ -11,18 +11,27 @@ const DIRS = ['S', 'E', 'W', 'N', 'SE', 'SW', 'NE', 'NW'], MOTIONS = ['idle', 'w
 {
   const src = ['src/core/util.js', 'src/core/color.js', 'src/core/rng.js', 'src/generators/character.js', 'src/generators/chibi.js'].map((f) => fs.readFileSync(f, 'utf8')).join('\n');
   const ctx = vm.createContext({});
-  vm.runInContext(src + '\nthis.api = { chibiDesign, chibiView, chibiCompose, CHIBI_N };', ctx);
-  const { chibiDesign, chibiView, chibiCompose, CHIBI_N: N } = ctx.api;
-  const pic = (seed, dir) => chibiCompose(chibiView(chibiDesign(seed, seed), dir));
+  vm.runInContext(src + '\nthis.api = { chibiDesign, chibiView, chibiCompose, CHIBI_N, CHIBI_CLASSES };', ctx);
+  const { chibiDesign, chibiView, chibiCompose, CHIBI_N: N, CHIBI_CLASSES } = ctx.api;
+  const pic = (seed, dir, cls = 'villager') => chibiCompose(chibiView(chibiDesign(seed, seed, cls), dir));
   ok(JSON.stringify(pic('oak', 'SE')) === JSON.stringify(pic('oak', 'SE')), 'the same seeds draw a different chibi');
   const designs = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((s) => JSON.stringify(pic(s, 'S').px)));
   ok(designs.size >= 7, `8 seeds gave only ${designs.size} different chibis`);
-  for (const seed of ['oak', 'luna', 'zed', 'mira']) for (const dir of DIRS) {
-    const { px, owner } = pic(seed, dir);
+  for (const seed of ['oak', 'luna', 'zed', 'mira']) for (const cls of Object.keys(CHIBI_CLASSES)) for (const dir of DIRS) {
+    const { px, owner } = pic(seed, dir, cls);
     ok(px.every((c, i) => !c === !owner[i]), `${seed} ${dir}: a pixel without a part (or a part without a pixel)`);
     const rows = px.map((c, i) => (c ? i / N | 0 : -1)).filter((y) => y >= 0);
-    ok(Math.max(...rows) === 30, `${seed} ${dir}: the feet are not on row 30`);
+    ok(Math.max(...rows) <= 30 && Math.min(...rows) >= 3, `${seed} ${cls} ${dir}: drawn outside rows 3-30 (no room for a run's lift)`);
+    // gear is held: every weapon, shield or bow touches (or overlaps) its own hand, also in the mirrored views
+    const v = chibiView(chibiDesign(seed, seed, cls), dir);
+    for (const [gear, hand] of [['weapon', 'handR'], ['shield', 'handL'], ['bow', 'handL']]) if (v.layers[gear]) {
+      const H = [...v.layers[hand].keys()], G = [...v.layers[gear].keys()];
+      const dist = Math.min(...G.map((g) => Math.min(...H.map((h) => Math.max(Math.abs(g % N - h % N), Math.abs((g / N | 0) - (h / N | 0)))))));
+      ok(dist <= 1, `${seed} ${cls} ${dir}: the ${gear} is ${dist} px from ${hand}`);
+    }
   }
+  const classes = Object.keys(CHIBI_CLASSES).map((c) => chibiDesign('oak', 'oak', c));
+  ok(classes.find((d) => d.cls === 'knight').weapon === 'sword' && classes.find((d) => d.cls === 'archer').offhand === 'bow' && classes.find((d) => d.cls === 'mage').hat === 'wizard', 'class gear: ' + JSON.stringify(classes.map((d) => [d.cls, d.weapon, d.offhand, d.hat])));
   for (const [l, r] of [['W', 'E'], ['SW', 'SE'], ['NW', 'NE']]) {
     const a = pic('oak', l), b = pic('oak', r), m = (i) => (i / N | 0) * N + N - 1 - i % N;
     ok(a.px.every((c, i) => c === b.px[m(i)]), `${l} is not ${r} mirrored`);
@@ -37,6 +46,9 @@ const t0 = Date.now();
 await page.click('#typeSeg button[data-val="chibi"]');
 await page.waitForFunction(() => __sf.state.type === 'chibi' && __sf.imported && __sf.imported.views.length === 7, null, { timeout: 60000 });
 const ms = Date.now() - t0;
+ok(await page.evaluate(() => !document.querySelector('#chibiGroup').hidden), 'the chibi class picker is not shown');
+await page.selectOption('#chibiClass', 'villager');
+await page.waitForFunction(() => __sf.state.chibiClass === 'villager' && /^Villager/.test(document.querySelector('#chibiInfo').textContent), null, { timeout: 60000 });
 await page.waitForTimeout(1500);
 const made = await page.evaluate(() => ({
   rows: __sf.timeline.order,
@@ -87,6 +99,19 @@ await page.click('#aaApply');
 ok(dialogs === 1, 'replacing the run did not ask');
 ok(/run_ne/.test((await page.evaluate(() => __sf.timeline.order)).join()), 'run_ne missing after Auto Animate');
 
+// classes with gear: a combat motion in every direction, the gear rigged to its hand, nothing cut off
+for (const [cls, motion] of [['knight', 'attack'], ['mage', 'cast'], ['archer', 'bow']]) {
+  await page.selectOption('#chibiClass', cls);
+  await page.waitForTimeout(300);
+  // the run Auto Animate replaced is a change: drawing the chibi again asks first
+  if (await page.evaluate(() => __sf.guardOpen)) await page.click('#guardGo');
+  await page.waitForFunction((c) => __sf.state.chibiClass === c && document.querySelector('#chibiInfo').textContent.toLowerCase().startsWith(c), cls, { timeout: 60000 });
+  await page.waitForTimeout(2000);
+  const r = await page.evaluate(([m]) => ({ rows: __sf.timeline.order, frames: __sf.timeline.anims[m] ? __sf.timeline.anims[m].frames.length : 0, check: __sf.check.findings.filter((f) => f.level !== 'info').map((f) => f.code + ' ' + f.anim) }), [motion]);
+  ok(DIRS.every((d) => r.rows.includes(d === 'S' ? motion : `${motion}_${d.toLowerCase()}`)) && r.frames === 8, `${cls}: ${motion} missing in some direction: ` + r.rows.join(' '));
+  const bad2 = r.check.filter((c) => { const [code, anim] = c.split(' '); return !(['duplicate', 'same-frame'].includes(code) && /^(idle|bow)/.test(anim)); });
+  ok(!bad2.length, `${cls}: frame check: ` + bad2.slice(0, 8).join(' | '));
+}
 // exports: screen names for the diagonals; the Godot pack has a cutout scene per direction
 await page.selectOption('#dirNames', 'screen');
 await page.selectOption('#exportPreset', 'phaser');

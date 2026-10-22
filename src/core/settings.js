@@ -11,6 +11,8 @@
     scale: 4,
     bg: "checker",
     heroClass: "random",
+    // V7.1: the class a Chibi is drawn as ("random": picked by the shape seed)
+    chibiClass: "random",
     heroLocks: {},
     lockColours: false,
     heroColourClass: null,
@@ -46,6 +48,7 @@
     if (SCALES.includes(saved.scale)) s.scale = saved.scale;
     if (BACKGROUNDS.includes(saved.bg)) s.bg = saved.bg;
     if (saved.heroClass === "random" || CLASS_NAMES.includes(saved.heroClass)) s.heroClass = saved.heroClass;
+    if (saved.chibiClass === "random" || typeof saved.chibiClass === "string" && Object.prototype.hasOwnProperty.call(CHIBI_CLASSES, saved.chibiClass)) s.chibiClass = saved.chibiClass;
     s.heroLocks = sanitizeHeroLocks(saved.heroLocks);
     if (typeof saved.lockColours === "boolean") s.lockColours = saved.lockColours;
     if (s.lockColours && CLASS_NAMES.includes(saved.heroColourClass)) s.heroColourClass = saved.heroColourClass;

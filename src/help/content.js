@@ -13,7 +13,7 @@
           controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("Chibi", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
           do: "Under Sprite type, click Character, Creature, Ship, Item, RPG Hero or Chibi. Under Sprite size, click a size such as 12 px or 32 px.",
           expect: "The preview in the middle shows a new sprite of that type, and the Variations row at the bottom fills with others like it.",
-          watch: 'RPG Hero always uses a 28 px sprite and Chibi a 32 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak; 8 frames each); its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
+          watch: 'RPG Hero always uses a 28 px sprite and Chibi a 32 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak, and attack, cast or bow when its class carries gear; 8 frames each); Chibi class picks Knight, Mage, Archer and so on; its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
           undo: "Click the type or size you had before. If the app asked you, Cancel keeps everything as it was."
         },
         {
@@ -279,7 +279,8 @@
       summary: "Makes a sprite from seeds. The left column of the Sprite Foundry page.",
       items: [
         { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, Chibi, or Imported (your own image, made in Image to pixel art)." },
-        { ...C("Chibi", "#typeSeg"), text: "A 32 px character drawn as body parts with joints in all 8 directions (down, up, left, right and the diagonals), with idle, walk, run and sneak in every direction, 8 frames each. The seeds and variations draw a new one (hair, outfit, colours); it asks first if you changed its parts, joints or animations. The left-facing directions mirror the right-facing ones." },
+        { ...C("Chibi", "#typeSeg"), text: "A 32 px character drawn as body parts with joints in all 8 directions (down, up, left, right and the diagonals), with idle, walk, run and sneak in every direction, 8 frames each. The seeds and variations draw a new one (hair, headwear, face, outfit, build, colours); it asks first if you changed its parts, joints or animations. The left-facing directions mirror the right-facing body; gear stays in its own hand." },
+        { ...C("Chibi class", "#chibiClass"), text: "Villager, Knight (helmet, sword, shield), Mage (pointed hat, staff), Archer (bow), Rogue (dagger), Warrior (axe or sword), Zombie, or Random (picked by the shape seed). Gear hangs from its hand in the rig; with gear the chibi also gets attack (blade), cast (staff) or bow, 8 frames, in every direction." },
         { ...C("Sprite size", "#sizeSeg"), text: "12, 16, 24 or 32 px. RPG Hero is always 28 px; Imported uses the size chosen in step 3. Each frame has 2 px of room around the sprite." },
         { ...C("Outline", "#outlineSeg"), text: "Tinted, Black or None. Drawn around the figure in every frame." }
       ]
