@@ -36,7 +36,7 @@
     const r = ramp(h, s, l);
     return { kind, tones: [mix(r.sh2, "#000000", 0.2), r.sh, r.base, r.hi, kind === "metal" ? mix(r.hi2, "#ffffff", 0.5) : r.hi2] };
   }
-  var A3_CLASSES = { fighter: "Fighter", wizard: "Wizard", druid: "Druid" };
+  var A3_CLASSES = { fighter: "Fighter", paladin: "Paladin", barbarian: "Barbarian", rogue: "Rogue", wizard: "Wizard", druid: "Druid" };
   // the head is drawn larger than life (as in most game sprites): everything of the head part is scaled
   // about the neck by A3_HEAD
   var A3_HEAD = 1.12, A3_NECK = [0, 34, 0];
@@ -81,12 +81,19 @@
       gold: a3Mat(44, 75, 50, "metal"),
       leather: { ...a3Mat(28, 42, 34), tex: 0.12 },
       fur: { ...a3Mat(32, 30, 52), tex: 0.32 },
+      dleather: { ...a3Mat(250, 12, 22), tex: 0.1 },
+      red: a3Mat(355, 70, 34),
       boot: { ...a3Mat(24, 32, 24), tex: 0.08 },
       wood: a3Mat(30, 42, 34),
       pants: a3Mat(rc() * 360, 16, 26),
       leaf: a3Mat(110, 55, 42)
     };
-    const cloth = cls === "fighter" ? a3Mat(rc.pick([355, 215, 275, 5]), 62, 38) : cls === "wizard" ? a3Mat(rc.pick([228, 262, 205]), 58, 42) : a3Mat(rc.pick([105, 95, 125]), 36, 36);
+    if (cls === "barbarian") {
+      // weathered skin a shade lighter, a dark grey-brown pelt, so the bare chest reads against it
+      M.fur = { ...a3Mat(30, 18, 34), tex: 0.32 };
+      M.leather = { ...a3Mat(24, 45, 26), tex: 0.12 };
+    }
+    const cloth = cls === "fighter" ? a3Mat(rc.pick([355, 215, 275, 5]), 62, 38) : cls === "wizard" ? a3Mat(rc.pick([228, 262, 205]), 58, 42) : cls === "paladin" ? a3Mat(rc.pick([0, 215, 210]), 65, 40) : cls === "rogue" ? a3Mat(rc.pick([355, 345, 260]), 58, 30) : cls === "barbarian" ? a3Mat(28, 35, 40) : a3Mat(rc.pick([105, 95, 125]), 36, 36);
     M.cloth = { ...cloth, kind: "cloth" };
     M.glow = { kind: "glow", tones: a3Mat(rc.pick([195, 205, 285]), 90, 62, "metal").tones };
     const P = [], add = (part, mat, s) => {
@@ -94,26 +101,37 @@
       const C = A3_NECK, k = A3_HEAD, inv = (p) => [C[0] + (p[0] - C[0]) / k, C[1] + (p[1] - C[1]) / k, C[2] + (p[2] - C[2]) / k];
       P.push({ part, mat, d: (p) => s.d(inv(p)) * k, b: [...a3HeadXf(s.b), s.b[3] * k] });
     };
-    const plate = cls === "fighter", robe = cls === "wizard", druid = cls === "druid";
+    // the body: what each region is made of, and the build (w widens shoulders, chest and limbs)
+    const BODY = {
+      fighter: { w: 1.08, torso: "metal", pelvis: "cloth", upper: "metal", fore: "metal", hand: "metal", shin: "metal", foot: "metal", belt: "dark", plate: true },
+      paladin: { w: 1.12, torso: "gold", pelvis: "cloth", upper: "gold", fore: "gold", hand: "gold", shin: "gold", foot: "gold", belt: "dark", plate: true },
+      wizard: { w: 1, torso: "cloth", pelvis: "cloth", upper: "cloth", fore: "cloth", hand: "skin", shin: "boot", foot: "boot", belt: "gold", robe: true },
+      druid: { w: 1.03, torso: "leather", pelvis: "leather", upper: "cloth", fore: "leather", hand: "skin", shin: "boot", foot: "boot", belt: "boot" },
+      barbarian: { w: 1.22, torso: "skin", pelvis: "leather", upper: "skin", fore: "skin", hand: "skin", shin: "fur", foot: "boot", belt: "boot", thigh: "leather" },
+      rogue: { w: 1, torso: "dleather", pelvis: "dleather", upper: "dleather", fore: "dleather", hand: "dleather", shin: "boot", foot: "boot", belt: "boot", thigh: "dleather" }
+    }[cls];
+    const B = (k) => M[BODY[k]] || M[k], w = BODY.w, wz = 1 + (w - 1) * 0.6, robe = !!BODY.robe, plate = !!BODY.plate, druid = cls === "druid";
+    // where the right hand is: gear for it is placed relative to this
+    const H = [-8.8 * w, 17, 1.1], RX = (x) => x - (8.8 * w - 8.8), LX = (x) => x + (8.8 * w - 8.8);
     for (const s of ["R", "L"]) {
       const X = (x) => (s === "R" ? -1 : 1) * x;
-      const J = { shoulder: [X(7.6), 31.2, 0], elbow: [X(8.4), 24.6, 0.4], wrist: [X(8.7), 18.8, 0.9], hand: [X(8.8), 17, 1.1], hip: [X(3), 19.6, 0], knee: [X(3.2), 10.8, 0.4], ankle: [X(3.2), 2.6, 0], foot: [X(3.2), 1.3, 1.1] };
-      add("upperArm" + s, plate || robe ? (plate ? M.metal : M.cloth) : M.cloth, A3.cone(J.shoulder, J.elbow, 2.6, 2.2));
-      add("forearm" + s, plate ? M.metal : robe ? M.cloth : M.leather, robe ? A3.cone(J.elbow, [J.wrist[0], J.wrist[1] - 0.3, J.wrist[2]], 2.2, 3) : A3.cone(J.elbow, J.wrist, 2.2, 1.8));
-      add("hand" + s, plate ? M.metal : M.skin, A3.ell(J.hand, [1.7, 2, 1.6]));
-      add("thigh" + s, M.pants, A3.cone(J.hip, J.knee, 3, 2.4));
-      add("shin" + s, plate ? M.metal : M.boot, A3.cone(J.knee, J.ankle, 2.4, 1.85));
-      add("foot" + s, plate ? M.metal : M.boot, A3.box(J.foot, [1.85, 1.3, 2.9], 0.75));
-      if (!plate) add("shin" + s, M.boot, A3.cyl([J.knee[0], J.knee[1] - 1.6, J.knee[2] * 0.6], 2.55, 0.8));
+      const J = { shoulder: [X(7.6 * w), 31.2, 0], elbow: [X(8.4 * w), 24.6, 0.4], wrist: [X(8.7 * w), 18.8, 0.9], hand: [X(8.8 * w), 17, 1.1], hip: [X(3 * w), 19.6, 0], knee: [X(3.2 * w), 10.8, 0.4], ankle: [X(3.2 * w), 2.6, 0], foot: [X(3.2 * w), 1.3, 1.1] };
+      add("upperArm" + s, B("upper"), A3.cone(J.shoulder, J.elbow, 2.6 * w, 2.2 * w));
+      add("forearm" + s, B("fore"), robe ? A3.cone(J.elbow, [J.wrist[0], J.wrist[1] - 0.3, J.wrist[2]], 2.2, 3) : A3.cone(J.elbow, J.wrist, 2.2 * w, 1.8 * w));
+      add("hand" + s, B("hand"), A3.ell(J.hand, [1.7 * w, 2, 1.6 * w]));
+      add("thigh" + s, BODY.thigh ? B("thigh") : M.pants, A3.cone(J.hip, J.knee, 3 * wz, 2.4 * wz));
+      add("shin" + s, B("shin"), A3.cone(J.knee, J.ankle, 2.4 * wz, 1.85 * wz));
+      add("foot" + s, B("foot"), A3.box(J.foot, [1.85 * wz, 1.3, 2.9], 0.75));
+      if (!plate) add("shin" + s, cls === "barbarian" ? M.leather : M.boot, A3.cyl([J.knee[0], J.knee[1] - 1.6, J.knee[2] * 0.6], 2.55 * wz, 0.8));
       if (plate) {
-        add("upperArm" + s, M.metal, A3.ell([J.shoulder[0], J.shoulder[1] + 0.7, J.shoulder[2]], [3.4, 2.7, 3.3]));
-        add("shin" + s, M.metal, A3.ell([J.knee[0], J.knee[1], J.knee[2] + 1.3], [1.9, 1.7, 1.4]));
-        add("forearm" + s, M.metal, A3.cyl([J.wrist[0], J.wrist[1] + 1, J.wrist[2]], 2.1, 0.7));
-      } else add("forearm" + s, robe ? M.gold : M.boot, A3.cyl([J.wrist[0], J.wrist[1] + (robe ? 0.2 : 1.3), J.wrist[2]], robe ? 3.05 : 2, 0.6));
+        add("upperArm" + s, B("upper"), A3.ell([J.shoulder[0], J.shoulder[1] + 0.7, J.shoulder[2]], [3.4 * w, 2.7, 3.3 * w]));
+        add("shin" + s, B("shin"), A3.ell([J.knee[0], J.knee[1], J.knee[2] + 1.3], [1.9 * wz, 1.7, 1.4]));
+        add("forearm" + s, B("fore"), A3.cyl([J.wrist[0], J.wrist[1] + 1, J.wrist[2]], 2.1 * w, 0.7));
+      } else add("forearm" + s, robe ? M.gold : M.boot, A3.cyl([J.wrist[0], J.wrist[1] + (robe ? 0.2 : 1.3), J.wrist[2]], robe ? 3.05 : 2 * w, 0.6));
     }
-    add("pelvis", plate ? M.cloth : robe ? M.cloth : M.leather, A3.ell([0, 20.6, 0], [6, 3.6, 3.8]));
-    add("torso", plate ? M.metal : robe ? M.cloth : M.leather, A3.union(A3.ell([0, 28.6, 0], [7.3, 5.4, 4.3]), A3.ell([0, 23.6, 0], [5.9, 3.6, 3.7])));
-    add("pelvis", plate ? M.dark : robe ? M.gold : M.boot, A3.cyl([0, 22.3, 0], 6.15, 0.7));
+    add("pelvis", B("pelvis"), A3.ell([0, 20.6, 0], [6 * w, 3.6, 3.8 * wz]));
+    add("torso", B("torso"), A3.union(A3.ell([0, 28.6, 0], [7.3 * w, 5.4, 4.3 * wz]), A3.ell([0, 23.6, 0], [5.9 * w, 3.6, 3.7 * wz])));
+    add("pelvis", B("belt"), A3.cyl([0, 22.3, 0], 6.15 * w, 0.7));
     add("head", M.skin, A3.cone([0, 32.5, -0.2], [0, 35.5, 0], 2.2, 2.1));
     // the head: skull, ears, nose, eyes (white and iris), brows, mouth
     add("head", M.skin, A3.ell([0, 39.4, 0.2], [5.5, 6.1, 5.6]));
@@ -138,6 +156,8 @@
       add("pelvis", M.cloth, A3.box([0, 16.4, 3.95], [2.3, 3.9, 0.5], 0.3));
       add("torso", M.gold, A3.ell([0, 26, 4.95], [1.1, 1.3, 0.45]));
       add("cloak", M.cloth, A3.custom([0, 17, -2, 14], (p) => capeD(p, 31.5, 6.2, 9.8, -2.2)));
+      add("cloak", M.gold, A3.custom([0, 4, -2, 11], (p) => capeTrim(p, 31.5, 6.2, 9.8, -2.2)));
+      add("cloak", M.gold, A3.ell([0, 23, -9], [2, 2.2, 0.7]));
       for (const k of [1, -1]) {
         add("torso", M.gold, A3.ell([4.6 * k, 31.4, 3.3], [0.85, 0.85, 0.6]));
         for (const dy of [-0.6, 1.4]) add("upperArm" + (k > 0 ? "L" : "R"), M.gold, A3.ell([8.6 * k, 32.4 + dy, 2.9], [0.4, 0.4, 0.4]));
@@ -146,10 +166,10 @@
       add("pelvis", M.leather, A3.ell([4.9, 20.1, 3.1], [1.4, 1.7, 1.1]));
       add("pelvis", M.gold, A3.box([0, 16.8, 4.5], [0.45, 1.7, 0.3]));
       add("pelvis", M.gold, A3.box([0, 17.6, 4.5], [1.3, 0.45, 0.3]));
-      add("weapon", M.metal, A3.cone([-9.6, 18.8, 2.6], [-15.2, 33.4, 4], 1, 0.6));
-      add("weapon", M.gold, A3.cone([-7.4, 18.7, 1.6], [-11.6, 17.3, 3.4], 0.6, 0.6));
-      add("weapon", M.leather, A3.cone([-9, 17.4, 1.6], [-8.3, 15.3, 1], 0.6, 0.6));
-      add("weapon", M.gold, A3.ell([-8.1, 14.8, 0.9], [0.85, 0.85, 0.85]));
+      add("weapon", M.metal, A3.cone([RX(-9.6), 18.8, 2.6], [RX(-15.2), 33.4, 4], 1, 0.6));
+      add("weapon", M.gold, A3.cone([RX(-7.4), 18.7, 1.6], [RX(-11.6), 17.3, 3.4], 0.6, 0.6));
+      add("weapon", M.leather, A3.cone([RX(-9), 17.4, 1.6], [RX(-8.3), 15.3, 1], 0.6, 0.6));
+      add("weapon", M.gold, A3.ell([RX(-8.1), 14.8, 0.9], [0.85, 0.85, 0.85]));
     } else if (cls === "wizard") {
       // a pointed hat with a broad brim and a gold band, white hair and a long beard below the mouth,
       // a robe to the ankles with a gold hem, an orb staff
@@ -158,17 +178,70 @@
       add("head", M.white, A3.ell([0, 36, -2.6], [5.3, 6.5, 3]));
       add("head", M.cloth, A3.cyl([0, 44.2, 0], 9.6, 0.55));
       add("head", M.cloth, A3.union(A3.cone([0, 44.4, 0], [-0.6, 46.9, -1.3], 5.5, 2.5), A3.cone([-0.6, 46.9, -1.3], [-1.8, 48, -4.2], 2.5, 0.5)));
-      add("head", M.gold, A3.ell([3, 45.9, 3.6], [0.55, 0.55, 0.45]));
-      add("head", M.gold, A3.ell([-3.4, 46.3, 2.4], [0.5, 0.5, 0.45]));
       for (const k of [1, -1]) add("head", M.white, A3.cone([5.2 * k, 38, 0.8], [5.5 * k, 31.6, 1.6], 1.3, 1));
       add("pelvis", M.gold, A3.cone([1.6, 22, 4.3], [2.3, 15, 5.4], 0.65, 0.55));
-      add("head", M.gold, A3.cyl([0, 45.3, 0], 5.6, 0.55));
+      // a band round the hat: a thin slice of the hat's own cone
+      add("head", M.gold, A3.custom([0, 45.3, 0, 6.5], (p) => Math.max(Math.abs(sdCone(p, [0, 44.4, 0], [-0.6, 46.9, -1.3], 5.5, 2.5)) - 0.3, Math.abs(p[1] - 45.2) - 0.55)));
       add("robe", M.cloth, A3.custom([0, 13, 0.4, 14], (p) => clothD(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.4, 9.6), p, 0.35)));
       add("robe", M.gold, A3.custom([0, 2, 0.6, 10.5], (p) => Math.max(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.55, 9.75), Math.abs(p[1] - 2.3) - 0.7)));
       add("torso", M.gold, A3.box([0, 26.2, 4.35], [0.55, 6, 0.45], 0.2));
-      add("weapon", M.wood, A3.cone([-10.6, 0.6, 1.4], [-10.6, 46, 1.4], 0.9, 0.8));
-      add("weapon", M.glow, A3.ell([-10.6, 48, 1.4], [2.1, 2.1, 2.1]));
-      add("weapon", M.gold, A3.cyl([-10.6, 45.8, 1.4], 1.3, 0.6));
+      add("weapon", M.wood, A3.cone([RX(-10.6), 0.6, 1.4], [RX(-10.6), 46, 1.4], 0.9, 0.8));
+      add("weapon", M.glow, A3.ell([RX(-10.6), 48, 1.4], [2.1, 2.1, 2.1]));
+      add("weapon", M.gold, A3.cyl([RX(-10.6), 45.8, 1.4], 1.3, 0.6));
+    } else if (cls === "paladin") {
+      // a closed golden helm with a visor slit and a crest, gold plate, a tabard, a kite shield with a cross
+      // on the left arm, a sword pointing down
+      add("head", M.gold, A3.custom([0, 40, 0, 7.5], (p) => Math.max(sdEllipsoid(p, [0, 40, -0.1], [6.2, 6.9, 6.3]), 33.4 - p[1])));
+      // the visor slit and breathing slot stand just proud of the helm, so they show
+      add("head", M.dark, A3.box([0, 39.6, 6.15], [3.3, 0.5, 0.4], 0.15));
+      add("head", M.dark, A3.box([0, 37.4, 6.2], [0.4, 1.5, 0.35], 0.1));
+      add("head", M.gold, A3.cyl([0, 41.6, -0.1], 6.35, 0.45));
+      add("head", M.gold, A3.box([0, 44.6, -0.5], [0.6, 2.8, 4.8], 0.5));
+      add("torso", M.cloth, A3.box([0, 23.6, 4.4 * wz], [2.4, 6.2, 0.6], 0.3));
+      add("pelvis", M.cloth, A3.box([0, 16.4, 4.1 * wz], [2.4, 3.9, 0.5], 0.3));
+      add("torso", M.white, A3.box([0, 24.5, 4.95 * wz], [0.5, 2.6, 0.3]));
+      add("torso", M.white, A3.box([0, 25.4, 4.95 * wz], [1.6, 0.5, 0.3]));
+      add("cloak", M.cloth, A3.custom([0, 17, -2, 14], (p) => capeD(p, 31.5, 6.6, 10.2, -2.4)));
+      add("cloak", M.gold, A3.custom([0, 4, -2, 11], (p) => capeTrim(p, 31.5, 6.6, 10.2, -2.4)));
+      // the kite shield: a flat gold rim, a red face, a gold cross, held in front of the left forearm
+      const shieldD = (p, grow, zc, zh) => Math.max(Math.min(sdEllipsoid([p[0], p[1], 0], [LX(9.4), 23.4, 0], [3.9 + grow, 3.4 + grow, 1]), sdCone([p[0], p[1], 0], [LX(9.4), 22.6, 0], [LX(9.4), 14.8, 0], 3.7 + grow, 0.5 + grow)), Math.abs(p[2] - zc) - zh);
+      add("shield", M.gold, A3.custom([LX(9.4), 20.6, 4.6, 8.6], (p) => shieldD(p, 0, 4.6, 0.5)));
+      add("shield", M.red, A3.custom([LX(9.4), 20.6, 5.2, 8.6], (p) => shieldD(p, -0.8, 5.25, 0.3)));
+      add("shield", M.gold, A3.union(A3.box([LX(9.4), 20.8, 5.55], [0.55, 4.2, 0.2]), A3.box([LX(9.4), 22.6, 5.55], [2.4, 0.55, 0.2])));
+      add("weapon", M.metal, A3.cone([H[0] - 0.4, 15.4, 2.4], [H[0] - 2.2, 3.2, 6.2], 0.95, 0.5));
+      add("weapon", M.gold, A3.cone([H[0] + 1.6, 16.2, 1.8], [H[0] - 2.2, 15.4, 2.8], 0.6, 0.6));
+      add("weapon", M.gold, A3.ell([H[0] + 0.3, 19.2, 0.8], [0.8, 0.8, 0.8]));
+    } else if (cls === "barbarian") {
+      // a bare, broad chest, a fur mantle on the shoulders, wild hair and a beard, a leather kilt with a
+      // fur-trimmed belt, fur boots, a great axe
+      add("head", M.hair, hair(33.2));
+      add("head", M.hair, A3.cone([0, 35.4, 4.6], [0, 30.8, 5.2], 3.6, 1.4));
+      for (const k of [1, -1]) add("head", M.hair, A3.cone([4.8 * k, 39, -1.5], [5.6 * k, 31.5, -1.5], 1.6, 1));
+      for (const k of [1, -1]) add("torso", M.skin, A3.ell([3.3 * k, 28.8, 3.4 * wz], [3.4, 2.4, 1.6]));
+      add("torso", M.fur, A3.custom([0, 31.5, -1.5, 11], (p) => Math.max(sdEllipsoid(p, [0, 31.6, -1.6], [10.2, 2.8, 6.2]), 30 - p[1])));
+      add("torso", M.leather, A3.cone([7.6, 31, 3.6], [-6.2, 21.6, 4.8], 0.6, 0.6));
+      add("pelvis", M.fur, A3.cyl([0, 22.3, 0], 6.3 * w, 0.8));
+      add("pelvis", M.leather, A3.custom([0, 16, 0, 9], (p) => clothD(Math.max(sdCone(p, [0, 21, 0], [0, 12.5, 0.3], 6.8 * w, 7.6 * w), 12.5 - p[1]), p, 0.25)));
+      add("weapon", M.wood, A3.cone([H[0], 7.5, 2.2], [H[0] - 0.4, 35, 2.8], 0.75, 0.7));
+      add("weapon", M.metal, A3.union(A3.ell([H[0] - 2.8, 31.6, 2.8], [2.4, 3.4, 0.6]), A3.ell([H[0] + 1.8, 31.6, 2.8], [1.4, 2.2, 0.55])));
+      add("weapon", M.leather, A3.cyl([H[0] - 0.2, 33.6, 2.7], 0.95, 0.9));
+    } else if (cls === "rogue") {
+      // a deep red hood and a short cape, a scarf over the mouth, dark leather with straps and pouches,
+      // a dagger held low
+      add("head", M.hair, hair(35));
+      add("head", M.cloth, A3.custom([0, 37, -1, 10], (p) => {
+        const shell = Math.max(sdEllipsoid(p, [0, 40.2, -0.7], [6.6, 7, 6.8]), -sdEllipsoid(p, [0, 40.2, -0.7], [5.95, 6.4, 6.2]));
+        const open = sdEllipsoid(p, [0, 38.6, 5.4], [4.4, 5, 4.4]);
+        return Math.max(Math.min(shell, sdCone(p, [0, 35, -1.4], [0, 31.4, -2], 6.4, 8.2) + 0.2), -open, 30 - p[1]);
+      }));
+      add("head", M.cloth, A3.cone([0, 41.5, -6.2], [0, 35.6, -8.8], 1.8, 0.4));
+      add("head", M.dleather, A3.custom([0, 35.8, 3, 6], (p) => Math.max(sdEllipsoid(p, [0, 36.6, 0.6], [5.7, 3.4, 5.4]), 34 - p[1], p[1] - 37.4)));
+      add("cloak", M.cloth, A3.custom([0, 22, -2, 11], (p) => Math.max(capeD(p, 31.8, 6.8, 9, 0.4), 15 - p[1])));
+      add("torso", M.leather, A3.cone([6, 31.6, 3.8], [-5.6, 21.4, 4.2], 0.55, 0.55));
+      add("pelvis", M.leather, A3.ell([4.6, 19.6, 3.3], [1.4, 1.7, 1.1]));
+      add("pelvis", M.leather, A3.ell([-4.6, 19.6, 3.3], [1.4, 1.7, 1.1]));
+      add("weapon", M.metal, A3.cone([H[0] - 0.4, 15.6, 2], [H[0] - 1.6, 10.6, 4.6], 0.75, 0.35));
+      add("weapon", M.dark, A3.cone([H[0] + 1.2, 16.2, 1.6], [H[0] - 1.8, 15.6, 2.4], 0.5, 0.5));
     } else {
       // an antlered hood with a wide opening, a cloak around the shoulders, a leather tunic with a strap
       // and a pouch, a crook staff with leaves
@@ -186,10 +259,12 @@
       add("torso", M.boot, A3.cone([-5.8, 32, 3.9], [5.8, 21, 4.3], 0.55, 0.55));
       add("pelvis", M.leather, A3.ell([-4.6, 19.4, 3.3], [1.3, 1.6, 1.1]));
       add("cloak", M.cloth, A3.custom([0, 17, -1, 14], (p) => capeD(p, 32, 7.4, 10.4, 0.6)));
+      add("cloak", M.leather, A3.custom([0, 4, -1, 12], (p) => capeTrim(p, 32, 7.4, 10.4, 0.6)));
+      add("head", M.cloth, A3.cone([0, 41.5, -6.2], [0, 35.8, -8.6], 1.8, 0.4));
       add("torso", M.boot, A3.cone([5.8, 32, 3.9], [-5.8, 21, 4.3], 0.6, 0.6));
       add("pelvis", M.leather, A3.ell([4.6, 19.4, 3.3], [1.6, 1.9, 1.2]));
-      add("weapon", M.wood, A3.union(A3.cone([-10.6, 0.6, 1.4], [-10.4, 44, 1.4], 0.9, 0.85), A3.cone([-10.4, 44, 1.4], [-11.6, 47.6, 1.4], 0.85, 0.75), A3.cone([-11.6, 47.6, 1.4], [-13.8, 48, 1.4], 0.75, 0.65), A3.cone([-13.8, 48, 1.4], [-14.4, 45.6, 1.4], 0.65, 0.6)));
-      add("weapon", M.leaf, A3.union(A3.ell([-10, 44.6, 2.4], [1.1, 0.7, 0.9]), A3.ell([-11.2, 43.4, 0.4], [1, 0.7, 0.9])));
+      add("weapon", M.wood, A3.union(A3.cone([RX(-10.6), 0.6, 1.4], [RX(-10.4), 44, 1.4], 0.9, 0.85), A3.cone([RX(-10.4), 44, 1.4], [RX(-11.6), 47.6, 1.4], 0.85, 0.75), A3.cone([RX(-11.6), 47.6, 1.4], [RX(-13.8), 48, 1.4], 0.75, 0.65), A3.cone([RX(-13.8), 48, 1.4], [RX(-14.4), 45.6, 1.4], 0.65, 0.6)));
+      add("weapon", M.leaf, A3.union(A3.ell([RX(-10), 44.6, 2.4], [1.1, 0.7, 0.9]), A3.ell([RX(-11.2), 43.4, 0.4], [1, 0.7, 0.9])));
     }
     const iris = M.eye.tones[0];
     return { parts: P, M, face: { white: "#f2ede4", iris, irisDark: mix(iris, "#000000", 0.45), brow: cls === "wizard" ? M.white.tones[1] : mix(M.hair.tones[1], "#000000", 0.25), lip: M.lip.tones[0] } };
@@ -203,6 +278,11 @@
   function capeD(p, top, rTop, rHem, front) {
     const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 3, -2.6], rTop, rHem)) - 0.55;
     return clothD(Math.max(shell, p[2] - front, p[1] - top - 1.2), p, 0.45);
+  }
+  // a band along a cape's hem
+  function capeTrim(p, top, rTop, rHem, front) {
+    const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 3, -2.6], rTop, rHem)) - 0.75;
+    return Math.max(shell, p[2] - front, Math.abs(p[1] - 4.3) - 0.9);
   }
   // ---- render one direction
   function a3Render(fig, dir) {

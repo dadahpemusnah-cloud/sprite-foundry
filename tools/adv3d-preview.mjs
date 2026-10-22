@@ -7,7 +7,7 @@ const ctx = vm.createContext({});
 vm.runInContext(src + '\nthis.api = { a3Figure, a3Render, A3_N };', ctx);
 const { a3Figure, a3Render, A3_N: N } = ctx.api;
 const [out = 'adv3d.png', ...args] = process.argv.slice(2);
-const list = args.length ? args : ['fighter:a', 'wizard:a', 'druid:a'];
+const list = args.length ? args : ['fighter:k', 'paladin:a', 'barbarian:a', 'rogue:a', 'wizard:k', 'druid:k'];
 const DIRS = ['S', 'SW', 'W', 'NW', 'N', 'NE', 'E', 'SE'], F = N + 4, K = 4, W = DIRS.length * F * K, H = list.length * F * K;
 const img = Buffer.alloc(W * H * 4, 255);
 const hex = (c) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
