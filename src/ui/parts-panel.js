@@ -380,6 +380,10 @@
       data: () => st.rgba ? { rgba: st.rgba, size: st.size } : null,
       // the image the panel works on, once it is decoded (V8.0: Convert waits for it)
       readyFor: (rest) => st.rest === rest && !!st.seg,
+      // V8.0b: parts made elsewhere (from a body pose), as one step that Undo takes back
+      setSeg(next, note) {
+        if (st.seg) commit(next, note);
+      },
       info() {
         if (!st.seg) return { ready: false, needsWork: !!(st.rest && !st.rest.work) };
         const c = counts(st.seg);

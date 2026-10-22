@@ -461,7 +461,11 @@
       items: [
         { ...C("front (needed)", "#qcFront"), text: "A full-body character standing and facing you, PNG or JPEG. A transparent background is used as it is; otherwise the plain background around the character is removed." },
         { ...C("side, facing right (optional)", "#qcSide"), text: "The same character seen from its right side. It becomes the right view, and its mirror the left view (the result says so). Without it you get the front view only." },
-        { ...C("Convert", "#qcGo"), text: "Runs steps 1 to 6 for you: background, pixel art, body parts (Rough guess), joints (Suggest joints), then idle, walk, run, attack (a swing with a weapon held in a hand, a punch without), defence (Block), hurt and death in every view. It asks first if a character is already there, and stops with a message if an image cannot be opened. The result is an ordinary imported character: check its parts in step 4 and the frame check, and fix by hand what the guess got wrong. Back views are not made yet." }
+        { ...C("Convert", "#qcGo"), text: "Runs steps 1 to 6 for you: background, pixel art, body parts (Rough guess), joints (Suggest joints), then idle, walk, run, attack (a swing with a weapon held in a hand, a punch without), defence (Block), hurt and death in every view. It asks first if a character is already there, and stops with a message if an image cannot be opened. The joints come from a body-pose model (MediaPipe Pose, run in your browser; the picture is not sent anywhere), and the body parts are cut along them. The result is an ordinary imported character: check its parts in step 4 and the frame check. Back views are not made yet." },
+        { ...C("Joints", "#qcJointsCanvas"), text: "The joints Convert used, on the character (red: the left of the picture, blue: the right). Drag one that is off. If the model found no body (it reads drawn people with real proportions; chibi or blocky figures it often misses), click the 14 joints in the order asked." },
+        { ...C("direction", "#qcJointsDir"), text: "Which view's joints are shown: front, and right and left when a side image was given." },
+        { ...C("Click them all again", "#qcJointsClick"), text: "Clears the joints so you can click all 14 yourself." },
+        { ...C("Use these joints", "#qcJointsUse"), text: "Cuts that view's body parts along the joints again, puts the rig's joints there, and makes its animations again (it replaces the ones Convert made)." }
       ]
     },
     {

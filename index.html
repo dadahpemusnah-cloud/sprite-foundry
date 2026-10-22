@@ -135,6 +135,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
 .quick{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;background:var(--sunk)}
 .quick p,.quick ul{margin:0}
 .quick ul{padding-left:18px}
+.joints-canvas{max-width:100%;touch-action:none;cursor:crosshair;border:1px solid var(--line);border-radius:4px;background:#fff}
 .quick .row{flex-wrap:wrap}
 .import-drop p{margin:0}
 .import-drop.loaded{padding:8px 14px}
@@ -602,13 +603,19 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     </div>
     <div class="quick" id="quickBox">
       <h3 class="label">Convert in one click</h3>
-      <p class="hint">Upload a full-body character standing and facing you. Convert removes the background, makes pixel art, finds the body parts and joints, and makes idle, walk, run, attack, defence, hurt and death. Add a side view (facing right) to get left and right too: the left one is your side image mirrored.</p>
+      <p class="hint">Upload a full-body character standing and facing you. Convert removes the background, makes pixel art, finds the joints with a body-pose model (in your browser) and the body parts from them, and makes idle, walk, run, attack, defence, hurt and death. Add a side view (facing right) to get left and right too: the left one is your side image mirrored.</p>
       <div class="row">
         <label class="field" for="qcFront">front (needed) <input type="file" id="qcFront" accept="image/png,image/jpeg,.png,.jpg,.jpeg"></label>
         <label class="field" for="qcSide">side, facing right (optional) <input type="file" id="qcSide" accept="image/png,image/jpeg,.png,.jpg,.jpeg"></label>
       </div>
       <div class="row"><button id="qcGo" type="button" class="primary" disabled>Convert</button><span class="hint" id="qcMsg" role="status"></span></div>
       <ul class="hint" id="qcResult" hidden></ul>
+      <div id="qcJoints" hidden>
+        <h3 class="label">Joints</h3>
+        <p class="hint" id="qcJointsInfo" role="status"></p>
+        <div class="row"><label class="field" for="qcJointsDir">direction <select id="qcJointsDir"></select></label><button id="qcJointsClick" type="button">Click them all again</button><button id="qcJointsUse" type="button" class="primary">Use these joints</button></div>
+        <canvas id="qcJointsCanvas" class="joints-canvas" width="1" height="1" aria-label="Joints on the character: drag a joint to move it, or click to place the next one"></canvas>
+      </div>
     </div>
     <div class="dir-bar" id="dirBar" hidden>
       <div class="row">
@@ -7528,6 +7535,159 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
   var CIRCLE = ["S", "SW", "W", "NW", "N", "NE", "E", "SE"];
   var rowName = (anim2, dir, mainDir2) => dir === mainDir2 ? anim2 : `${anim2}_${dir.toLowerCase()}`;
 
+  // src/import/pose.js
+  // V8.0b: body parts and joints from a body pose. A pose is 33 landmarks (MediaPipe Pose: normalised
+  // x, y and a visibility), found by a model in the browser or clicked by a person. The joints become
+  // the rig's pivots; every pixel of the character goes to the body part whose bone it is nearest to,
+  // limbs first (an arm across the chest is in front of it).
+  // Landmark numbers (MediaPipe): 0 nose, 7/8 ears, 11/12 shoulders, 13/14 elbows, 15/16 wrists,
+  // 17/18 pinkies, 19/20 index fingers, 23/24 hips, 25/26 knees, 27/28 ankles, 29/30 heels, 31/32 toes.
+  // Odd numbers are the person's left. The app's L and R are the sides of the picture (L on the left).
+  var POSE_SIDE = {
+    a: { shoulder: 11, elbow: 13, wrist: 15, pinky: 17, index: 19, hip: 23, knee: 25, ankle: 27, heel: 29, toe: 31, ear: 7 },
+    b: { shoulder: 12, elbow: 14, wrist: 16, pinky: 18, index: 20, hip: 24, knee: 26, ankle: 28, heel: 30, toe: 32, ear: 8 }
+  };
+  // the joints a person is asked to click (C) when the model finds no pose or is unsure, in this order
+  var POSE_CLICKS = [
+    ["head", "the top of the head"], ["neck", "the neck"],
+    ["shoulderL", "the shoulder on the left of the picture"], ["elbowL", "the elbow on the left"], ["wristL", "the wrist on the left"],
+    ["shoulderR", "the shoulder on the right of the picture"], ["elbowR", "the elbow on the right"], ["wristR", "the wrist on the right"],
+    ["hipL", "the hip on the left"], ["kneeL", "the knee on the left"], ["ankleL", "the ankle on the left"],
+    ["hipR", "the hip on the right"], ["kneeR", "the knee on the right"], ["ankleR", "the ankle on the right"]
+  ];
+  var POSE_KEY = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"];
+  var POSE_MIN_VIS = 0.5;
+  const pAdd = (a, b) => [a[0] + b[0], a[1] + b[1]], pSub = (a, b) => [a[0] - b[0], a[1] - b[1]], pMul = (a, k) => [a[0] * k, a[1] * k];
+  const pMid = (a, b) => pMul(pAdd(a, b), 0.5), pLen = (a) => Math.hypot(a[0], a[1]);
+  // landmarks (normalised to the image) -> named joints in work pixels, L and R by side of the picture
+  function poseJoints(lm, S) {
+    const at = (i) => [lm[i].x * S, lm[i].y * S], vis = (i) => lm[i].visibility == null ? 1 : lm[i].visibility;
+    const side = (s) => Object.fromEntries(Object.entries(POSE_SIDE[s]).map(([k, i]) => [k, at(i)]));
+    const a = side("a"), b = side("b"), ax = a.shoulder[0] + a.hip[0], bx = b.shoulder[0] + b.hip[0];
+    const [L, R, sL, sR] = ax < bx ? [a, b, "a", "b"] : [b, a, "b", "a"];
+    const key = [...POSE_KEY.map((k) => POSE_SIDE[sL][k]), ...POSE_KEY.map((k) => POSE_SIDE[sR][k])];
+    const tip = (s) => pAdd(s.wrist, pMul(pSub(pMid(s.index, s.pinky), s.wrist), 1.6));
+    const ears = pMid(L.ear, R.ear), neck = pMid(L.shoulder, R.shoulder), nose = at(0);
+    // the head: from the ears up by as much as from the shoulders to the ears (hair on top)
+    const headC = pMid(ears, nose), up = pSub(headC, neck), head = pAdd(headC, pMul(up, 0.8));
+    const j = { head, headC, neck, vis: Math.min(...key.map(vis)) };
+    for (const [s, X] of [["L", L], ["R", R]]) {
+      for (const k of ["shoulder", "elbow", "wrist", "hip", "knee", "ankle", "heel", "toe"]) j[k + s] = X[k];
+      j["hand" + s] = tip(X);
+    }
+    return j;
+  }
+  // clicked joints (C) -> the same named joints; hands and feet are guessed from the arm and leg
+  function clickedJoints(pts) {
+    const j = { ...pts, vis: 1 };
+    j.headC = pAdd(pts.head, pMul(pSub(pts.neck, pts.head), 0.45));
+    for (const s of ["L", "R"]) {
+      j["hand" + s] = pAdd(pts["wrist" + s], pMul(pSub(pts["wrist" + s], pts["elbow" + s]), 0.45));
+      const shin = pSub(pts["ankle" + s], pts["knee" + s]), out = s === "L" ? -1 : 1;
+      j["heel" + s] = pAdd(pts["ankle" + s], pMul(shin, 0.12));
+      j["toe" + s] = pAdd(j["heel" + s], [out * pLen(shin) * 0.3, 0]);
+    }
+    return j;
+  }
+  // the clickable joints of a pose (to show and drag them)
+  const poseClickPoints = (j) => Object.fromEntries(POSE_CLICKS.map(([k]) => [k, j[k].slice()]));
+  // is the pose usable? (found, sure enough, upright enough to animate)
+  function poseProblem(j) {
+    if (!j) return "no body was found in the picture";
+    if (j.vis < POSE_MIN_VIS) return `the model is unsure of some joints (${Math.round(j.vis * 100)}% sure)`;
+    const hips = pMid(j.hipL, j.hipR);
+    if (!(hips[1] > j.neck[1])) return "the body is not upright (the hips are not below the shoulders)";
+    if (pLen(pSub(j.shoulderL, j.shoulderR)) < 2) return "the shoulders are on top of each other";
+    return "";
+  }
+  function segDist(p, a, b) {
+    const ab = pSub(b, a), l2 = ab[0] * ab[0] + ab[1] * ab[1], t = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / l2)) : 0;
+    return pLen(pSub(p, pAdd(a, pMul(ab, t))));
+  }
+  // signed distance to a convex polygon (negative inside)
+  function polyDist(p, poly) {
+    let inside = true, d = Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length], e = pSub(b, a), w = pSub(p, a);
+      if (e[0] * w[1] - e[1] * w[0] < 0) inside = false;
+      d = Math.min(d, segDist(p, a, b));
+    }
+    return inside ? -d : d;
+  }
+  // which part each opaque pixel belongs to: ids in a work-sized array (null for background)
+  function posePartMap(j, alpha, S) {
+    const u = Math.max(pLen(pSub(j.shoulderL, j.shoulderR)), pLen(pSub(j.hipL, j.hipR)) * 1.3, S * 0.05);
+    const limbs = [];
+    for (const s of ["L", "R"]) limbs.push(
+      ["hand" + s, j["wrist" + s], j["hand" + s], 0.17 * u],
+      ["forearm" + s, j["elbow" + s], j["wrist" + s], 0.17 * u],
+      ["upperArm" + s, j["shoulder" + s], j["elbow" + s], 0.2 * u],
+      ["foot" + s, j["ankle" + s], j["toe" + s], 0.16 * u],
+      ["shin" + s, j["knee" + s], j["ankle" + s], 0.22 * u],
+      ["thigh" + s, j["hip" + s], j["knee" + s], 0.28 * u]
+    );
+    const neckTop = pAdd(j.neck, pMul(pSub(j.headC, j.neck), 0.35));
+    const head = ["head", neckTop, j.head, 0.5 * u];
+    // the trunk: shoulders to hips, a little wider; the pelvis is its lowest quarter and below
+    const o = (p, q, k) => pAdd(p, pMul(pSub(p, q), k));
+    const sL = o(j.shoulderL, j.shoulderR, 0.05), sR = o(j.shoulderR, j.shoulderL, 0.05), hL = o(j.hipL, j.hipR, 0.25), hR = o(j.hipR, j.hipL, 0.25);
+    const trunk = [sL, sR, hR, hL], waist = pAdd(pMid(sL, sR), pMul(pSub(pMid(hL, hR), pMid(sL, sR)), 0.78));
+    const down = pSub(pMid(hL, hR), pMid(sL, sR));
+    const out = new Array(S * S).fill(null);
+    for (let t = 0; t < S * S; t++) {
+      if (alpha[t * 4 + 3] < 128) continue;
+      const p = [t % S + 0.5, (t / S | 0) + 0.5];
+      let best = null, cost = Infinity;
+      // limbs and the head in front, in this order, when the pixel is on them
+      for (const [id, a, b, r] of [...limbs, head]) {
+        const c = segDist(p, a, b) / r;
+        if (c < 1 && !best) best = id;
+        if (c < cost) cost = c;
+      }
+      if (best) {
+        out[t] = best;
+        continue;
+      }
+      const td = polyDist(p, trunk) / (0.35 * u), below = (p[0] - waist[0]) * down[0] + (p[1] - waist[1]) * down[1] > 0;
+      if (td <= 0 || td < cost) {
+        out[t] = below ? "pelvis" : "torso";
+        continue;
+      }
+      // anything else (a coat tail, a sleeve, hair): the nearest part
+      let near = null, nc = Infinity;
+      for (const [id, a, b, r] of [...limbs, head]) {
+        const c = segDist(p, a, b) / r;
+        if (c < nc) {
+          nc = c;
+          near = id;
+        }
+      }
+      out[t] = near;
+    }
+    return out;
+  }
+  // the rig's pivots in work pixels: each part turns about the joint it hangs from
+  function posePivots(j) {
+    const hips = pMid(j.hipL, j.hipR);
+    const piv = { pelvis: hips, torso: pAdd(hips, pMul(pSub(j.neck, hips), 0.22)), head: pAdd(j.neck, pMul(pSub(j.headC, j.neck), 0.25)) };
+    for (const s of ["L", "R"]) Object.assign(piv, {
+      ["upperArm" + s]: j["shoulder" + s], ["forearm" + s]: j["elbow" + s], ["hand" + s]: j["wrist" + s],
+      ["thigh" + s]: j["hip" + s], ["shin" + s]: j["knee" + s], ["foot" + s]: j["ankle" + s]
+    });
+    return Object.fromEntries(Object.entries(piv).map(([k, v]) => [k, [Math.round(v[0]), Math.round(v[1])]]));
+  }
+  // a segmentation (step 4) from the part map; parts without pixels are kept (the weapon) but empty
+  function poseSegmentation(j, rgba, S) {
+    const seg2 = newSegmentation(rgba, S), ids = posePartMap(j, rgba, S);
+    for (let t = 0; t < S * S; t++) if (seg2.map[t]) seg2.map[t] = partIndex(seg2, ids[t]) || UNASSIGNED;
+    return seg2;
+  }
+  // a rig whose pivots are the pose's joints (fixed: they do not follow later part edits)
+  function poseRig(seg2, j, prev = null) {
+    const rig = syncRig(seg2, prev), piv = posePivots(j);
+    for (const [id, p] of Object.entries(piv)) if (rig.bones[id]) rig.bones[id] = { ...rig.bones[id], pivot: p, auto: false };
+    return rig;
+  }
   // src/rig/check.js
   var BODY = /* @__PURE__ */ new Set(["torso", "head", "pelvis"]);
   function bodyPoint(px, owner, N, feet = null) {
@@ -11347,6 +11507,10 @@ self.onmessage = async e => {
       data: () => st.rgba ? { rgba: st.rgba, size: st.size } : null,
       // the image the panel works on, once it is decoded (V8.0: Convert waits for it)
       readyFor: (rest) => st.rest === rest && !!st.seg,
+      // V8.0b: parts made elsewhere (from a body pose), as one step that Undo takes back
+      setSeg(next, note) {
+        if (st.seg) commit(next, note);
+      },
       info() {
         if (!st.seg) return { ready: false, needsWork: !!(st.rest && !st.rest.work) };
         const c = counts(st.seg);
@@ -16696,6 +16860,153 @@ self.onmessage = async e => {
       })
     };
   }
+  // src/ui/pose-detect.js
+  // V8.0b: finds the body pose in a character picture with MediaPipe Pose Landmarker (Apache 2.0),
+  // run in the browser. Its files are published next to the page under pose/ (vision_bundle.mjs,
+  // wasm/vision_wasm_internal.js and .wasm, pose_landmarker_full.task); see tools/pose-files.mjs.
+  // Nothing leaves the browser. If the files cannot load, Convert falls back to clicked joints.
+  var POSE_BASE = "pose/";
+  var poseModel = null;
+  function loadPoseModel() {
+    if (!poseModel) poseModel = (async () => {
+      const base = new URL(POSE_BASE, document.baseURI).href;
+      const vision = await import(base + "vision_bundle.mjs");
+      const files = await vision.FilesetResolver.forVisionTasks(base + "wasm");
+      return vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: base + "pose_landmarker_full.task", delegate: "CPU" }, runningMode: "IMAGE", numPoses: 1 });
+    })().catch((e) => {
+      poseModel = null;
+      throw e;
+    });
+    return poseModel;
+  }
+  // the 33 landmarks of the character in a work image (RGBA, S×S), or null when no body is found
+  async function detectPose(rgba, S) {
+    const model = await loadPoseModel(), src = document.createElement("canvas"), c = document.createElement("canvas");
+    // on white, as a picture would be, and at least 512 px (a small sprite's work image is 128 px)
+    const Z = Math.max(S, 512);
+    src.width = src.height = S;
+    c.width = c.height = Z;
+    src.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), S, S), 0, 0);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, Z, Z);
+    ctx.drawImage(src, 0, 0, Z, Z);
+    const r = model.detect(c), lm = r && r.landmarks && r.landmarks[0];
+    return lm ? lm.map((l) => ({ x: l.x, y: l.y, visibility: l.visibility == null ? 1 : l.visibility })) : null;
+  }
+  // src/ui/joints-editor.js
+  // V8.0b: the joints Convert used, on the character, per direction. Drag a joint that is off; or,
+  // when the pose model found nothing (or you press Click them all again), click the 14 joints in
+  // order. "Use these joints" cuts the body parts again and remakes that direction's animations.
+  var JOINT_LINES = [["head", "neck"], ["neck", "shoulderL"], ["neck", "shoulderR"], ["shoulderL", "elbowL"], ["elbowL", "wristL"], ["shoulderR", "elbowR"], ["elbowR", "wristR"], ["shoulderL", "hipL"], ["shoulderR", "hipR"], ["hipL", "hipR"], ["hipL", "kneeL"], ["kneeL", "ankleL"], ["hipR", "kneeR"], ["kneeR", "ankleR"]];
+  function initJointsEditor({ $: $2, imageOf, onUse }) {
+    const canvas = $2("#qcJointsCanvas"), ctx = canvas.getContext("2d");
+    // per direction: { pts: {name: [x, y]} (work px), source: "model" | "click" | "guess", note, S }
+    const st = { dirs: {}, dir: null, drag: null, img: null, scale: 1 };
+    const cur = () => st.dirs[st.dir];
+    const missing = () => POSE_CLICKS.filter(([k]) => !(cur().pts && cur().pts[k]));
+    async function show(dir) {
+      st.dir = dir;
+      const d = cur();
+      $2("#qcJoints").hidden = false;
+      $2("#qcJointsDir").replaceChildren(...Object.keys(st.dirs).map((k) => new Option(`${DIRECTION_LABEL[k]} (${k})`, k)));
+      $2("#qcJointsDir").value = dir;
+      const im = await imageOf(dir);
+      if (st.dir !== dir || !im) return;
+      const src = document.createElement("canvas");
+      src.width = src.height = im.S;
+      src.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(im.rgba), im.S, im.S), 0, 0);
+      st.img = src;
+      d.S = im.S;
+      st.scale = Math.max(0.5, Math.min(2, 360 / im.S));
+      canvas.width = canvas.height = Math.round(im.S * st.scale);
+      render();
+    }
+    function render() {
+      const d = cur();
+      if (!d || !st.img) return;
+      const k = st.scale, todo = missing();
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(st.img, 0, 0, canvas.width, canvas.height);
+      const p = d.pts || {};
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#16a34a";
+      for (const [a, b] of JOINT_LINES) if (p[a] && p[b]) {
+        ctx.beginPath();
+        ctx.moveTo(p[a][0] * k, p[a][1] * k);
+        ctx.lineTo(p[b][0] * k, p[b][1] * k);
+        ctx.stroke();
+      }
+      for (const [name, v] of Object.entries(p)) {
+        ctx.fillStyle = /L$/.test(name) ? "#dc2626" : /R$/.test(name) ? "#2563eb" : "#111827";
+        ctx.beginPath();
+        ctx.arc(v[0] * k, v[1] * k, 5, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+      $2("#qcJointsInfo").textContent = todo.length ? `Click ${todo[0][1]} (${POSE_CLICKS.length - todo.length + 1} of ${POSE_CLICKS.length}).${d.note ? " " + d.note : ""}` : `${d.source === "model" ? "Found by the pose model" : d.source === "click" ? "Placed by you" : "Guessed"}${d.note ? ": " + d.note : ""}. Drag a joint that is off (red: left of the picture, blue: right), then Use these joints.`;
+      $2("#qcJointsUse").disabled = !!todo.length;
+    }
+    const at = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return [(e.clientX - r.left) * (canvas.width / r.width) / st.scale, (e.clientY - r.top) * (canvas.height / r.height) / st.scale];
+    };
+    canvas.addEventListener("pointerdown", (e) => {
+      const d = cur();
+      if (!d || !st.img) return;
+      const p = at(e), todo = missing();
+      if (todo.length) {
+        d.pts = { ...d.pts || {}, [todo[0][0]]: p };
+        d.source = "click";
+        render();
+        return;
+      }
+      let best = null, bd = 12 / st.scale;
+      for (const [name, v] of Object.entries(d.pts)) {
+        const dd = Math.hypot(v[0] - p[0], v[1] - p[1]);
+        if (dd < bd) {
+          bd = dd;
+          best = name;
+        }
+      }
+      if (best) {
+        st.drag = best;
+        canvas.setPointerCapture(e.pointerId);
+      }
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!st.drag) return;
+      cur().pts[st.drag] = at(e);
+      if (cur().source === "model") cur().source = "click";
+      render();
+    });
+    canvas.addEventListener("pointerup", () => {
+      st.drag = null;
+    });
+    $2("#qcJointsDir").addEventListener("change", (e) => show(e.target.value));
+    $2("#qcJointsClick").addEventListener("click", () => {
+      cur().pts = null;
+      cur().note = "";
+      render();
+    });
+    $2("#qcJointsUse").addEventListener("click", () => {
+      if (!missing().length) onUse(st.dir, JSON.parse(JSON.stringify(cur().pts)));
+    });
+    return {
+      // set the joints of a direction (pts null: to be clicked)
+      set(dir, pts, source, note = "") {
+        st.dirs[dir] = { pts, source, note };
+      },
+      clear() {
+        st.dirs = {};
+        st.dir = null;
+        $2("#qcJoints").hidden = true;
+      },
+      show,
+      info: () => ({ dir: st.dir, dirs: JSON.parse(JSON.stringify(st.dirs)), todo: st.dir ? missing().map(([k]) => k) : [] })
+    };
+  }
   // src/ui/preflight-panel.js
   var LABEL2 = { ready: "ready", attention: "needs attention", na: "not applicable" };
   var FIX_LABEL = { parts: "Open step 4", rig: "Open step 5", motion: "Open Template Motion" };
@@ -17198,7 +17509,11 @@ self.onmessage = async e => {
       items: [
         { ...C("front (needed)", "#qcFront"), text: "A full-body character standing and facing you, PNG or JPEG. A transparent background is used as it is; otherwise the plain background around the character is removed." },
         { ...C("side, facing right (optional)", "#qcSide"), text: "The same character seen from its right side. It becomes the right view, and its mirror the left view (the result says so). Without it you get the front view only." },
-        { ...C("Convert", "#qcGo"), text: "Runs steps 1 to 6 for you: background, pixel art, body parts (Rough guess), joints (Suggest joints), then idle, walk, run, attack (a swing with a weapon held in a hand, a punch without), defence (Block), hurt and death in every view. It asks first if a character is already there, and stops with a message if an image cannot be opened. The result is an ordinary imported character: check its parts in step 4 and the frame check, and fix by hand what the guess got wrong. Back views are not made yet." }
+        { ...C("Convert", "#qcGo"), text: "Runs steps 1 to 6 for you: background, pixel art, body parts (Rough guess), joints (Suggest joints), then idle, walk, run, attack (a swing with a weapon held in a hand, a punch without), defence (Block), hurt and death in every view. It asks first if a character is already there, and stops with a message if an image cannot be opened. The joints come from a body-pose model (MediaPipe Pose, run in your browser; the picture is not sent anywhere), and the body parts are cut along them. The result is an ordinary imported character: check its parts in step 4 and the frame check. Back views are not made yet." },
+        { ...C("Joints", "#qcJointsCanvas"), text: "The joints Convert used, on the character (red: the left of the picture, blue: the right). Drag one that is off. If the model found no body (it reads drawn people with real proportions; chibi or blocky figures it often misses), click the 14 joints in the order asked." },
+        { ...C("direction", "#qcJointsDir"), text: "Which view's joints are shown: front, and right and left when a side image was given." },
+        { ...C("Click them all again", "#qcJointsClick"), text: "Clears the joints so you can click all 14 yourself." },
+        { ...C("Use these joints", "#qcJointsUse"), text: "Cuts that view's body parts along the joints again, puts the rig's joints there, and makes its animations again (it replaces the ones Convert made)." }
       ]
     },
     {
@@ -19653,7 +19968,7 @@ self.onmessage = async e => {
     { name: "hurt", template: "hurt" },
     { name: "death", template: "death" }
   ];
-  var quickBusy = false, quickReport = null;
+  var quickBusy = false, quickReport = null, quickPoseOverride = null;
   const waitUntil = async (ok, what, ms = 6e4) => {
     const t0 = Date.now();
     while (!ok()) {
@@ -19674,8 +19989,17 @@ self.onmessage = async e => {
     const blob = await new Promise((r) => c.toBlob(r, "image/png"));
     return new File([blob], file.name.replace(/\.[^.]+$/, "") + "-mirrored.png", { type: "image/png" });
   }
-  // steps 1-5 for one image, on the direction steps 1-7 currently work on
-  async function quickSteps(file, label) {
+  // V8.0b: body parts and fixed joints from a body pose, on the direction steps 1-7 work on
+  function applyPose(j, how) {
+    const rest = curRest(), d = partsPanel.data();
+    const seg2 = poseSegmentation(j, d.rgba, d.size);
+    rest.rig = poseRig(seg2, j, rest.rig);
+    partsPanel.setSeg(seg2, `Body parts cut along the joints ${how}. Check them, paint what is off, or move a joint under Convert.`);
+    refreshRig();
+  }
+  // steps 1-5 for one image, on the direction steps 1-7 currently work on; returns why the pose
+  // model was not used ("" when it was)
+  async function quickSteps(file, label, dir) {
     const say = (t) => {
       $("#qcMsg").textContent = `${label}: ${t}\u2026`;
     };
@@ -19695,11 +20019,74 @@ self.onmessage = async e => {
     const view = curView(), restNow = () => view ? viewOf(view).rest : importedAsset && importedAsset.rest, before = restNow();
     $("#convApply").click();
     await waitUntil(() => restNow() && restNow() !== before, "using the pixel art as the sprite");
-    say("finding the body parts and joints");
     await waitUntil(() => partsPanel.readyFor(restNow()) && !$("#ptGuess").disabled, "the body parts step");
-    $("#ptGuess").click();
-    $("#rigSuggest").click();
+    say("finding the joints (body-pose model)");
+    const d = partsPanel.data();
+    let lm = null, why = "";
+    try {
+      lm = quickPoseOverride ? quickPoseOverride(dir) : await detectPose(d.rgba, d.size);
+    } catch (e) {
+      why = `the pose model could not load (${e.message})`;
+    }
+    const j = lm ? poseJoints(lm, d.size) : null, problem = why || poseProblem(j);
+    if (!problem) {
+      applyPose(j, "found by the pose model");
+      jointsEditor.set(dir, poseClickPoints(j), "model", `${Math.round(j.vis * 100)}% sure`);
+    } else {
+      // the rough guess from body proportions until the joints are clicked
+      $("#ptGuess").click();
+      $("#rigSuggest").click();
+      jointsEditor.set(dir, null, "guess", `Not found automatically: ${problem}. Until you click the joints, the parts are a rough guess.`);
+    }
     await new Promise((r) => setTimeout(r, 0));
+    return problem;
+  }
+  // every Convert motion in the given directions (all when none given)
+  function quickMotions(only = null) {
+    const made = [], skipped = [];
+    for (const d of directions()) {
+      if (only && !only.includes(d.dir)) continue;
+      const present = presentParts(d.rest, d.layers);
+      for (const m of QUICK_MOTIONS) {
+        let t = templateById(typeof m.template === "function" ? m.template(d.rest.rig) : m.template), chk = checkTemplate(t, d.rest.rig, present);
+        // a weapon not held in a hand in this view: punch instead
+        if (!chk.ok && t.id === "attack") {
+          t = templateById("punch");
+          chk = checkTemplate(t, d.rest.rig, present);
+        }
+        if (!chk.ok) {
+          skipped.push(`${m.name} ${DIRECTION_LABEL[d.dir]}: ${chk.reason}`);
+          continue;
+        }
+        const a = buildTemplate(t, d.rest, d.layers, { facing: FACING_OF[d.dir], ...m.frames ? { frames: m.frames, fps: m.fps, loop: m.loop } : {} });
+        addAnimationTo(d.dir, m.name, a, `${m.name} made by Convert (${t.name}). Every key can be edited here.`);
+        made.push(rowName(m.name, d.dir, mainDir()));
+      }
+    }
+    return { made, skipped };
+  }
+  // the joints were moved or clicked: cut that direction's parts again and remake its motions
+  async function useJoints(dir, pts) {
+    if (quickBusy) return;
+    quickBusy = true;
+    syncQuick();
+    try {
+      switchDirection(dir);
+      await waitUntil(() => partsPanel.readyFor(curRest()), "the body parts step");
+      applyPose(clickedJoints(pts), "you placed");
+      await waitUntil(() => directions().every((d) => d.layers), "decoding the images");
+      const r = quickMotions([dir]);
+      switchDirection(mainDir());
+      jointsEditor.set(dir, pts, "click");
+      jointsEditor.show(dir);
+      quickReport = { ...quickReport, remade: dir, made: r.made, skipped: r.skipped };
+      $("#qcMsg").textContent = `${DIRECTION_LABEL[dir]}: parts cut along your joints, ${r.made.length} animations made again.${r.skipped.length ? " Not made: " + r.skipped.join("; ") : ""}`;
+    } catch (e) {
+      $("#qcMsg").textContent = `Could not use the joints: ${e.message}.`;
+    } finally {
+      quickBusy = false;
+      syncQuick();
+    }
   }
   async function quickConvert() {
     const front = $("#qcFront").files[0], side = $("#qcSide").files[0];
@@ -19725,40 +20112,31 @@ self.onmessage = async e => {
         state.type = "character";
         regenerate();
       }
-      await quickSteps(front, "Front");
+      jointsEditor.clear();
+      const unsure = {};
+      const front0 = await quickSteps(front, "Front", "S");
+      if (front0) unsure.S = front0;
       setMainDirection("S");
       if (side) {
         for (const [d, file, label] of [["E", side, "Side (right)"], ["W", await mirroredFile(side), "Side (left, mirrored)"]]) {
           addDirection(d);
-          await quickSteps(file, label);
+          const why = await quickSteps(file, label, d);
+          if (why) unsure[d] = why;
         }
         switchDirection(mainDir());
       }
       $("#qcMsg").textContent = "Making the animations\u2026";
       // every direction's working image decoded (its parts are cut from it)
       await waitUntil(() => directions().every((d) => d.layers), "decoding the images");
-      for (const d of directions()) {
-        const present = presentParts(d.rest, d.layers);
-        for (const m of QUICK_MOTIONS) {
-          let t = templateById(typeof m.template === "function" ? m.template(d.rest.rig) : m.template), chk = checkTemplate(t, d.rest.rig, present);
-          // a weapon not held in a hand in this view: punch instead
-          if (!chk.ok && t.id === "attack") {
-            t = templateById("punch");
-            chk = checkTemplate(t, d.rest.rig, present);
-          }
-          if (!chk.ok) {
-            skipped.push(`${m.name} ${DIRECTION_LABEL[d.dir]}: ${chk.reason}`);
-            continue;
-          }
-          const a = buildTemplate(t, d.rest, d.layers, { facing: FACING_OF[d.dir], ...m.frames ? { frames: m.frames, fps: m.fps, loop: m.loop } : {} });
-          addAnimationTo(d.dir, m.name, a, `${m.name} made by Convert (${t.name}). Every key can be edited here.`);
-          made.push(rowName(m.name, d.dir, mainDir()));
-        }
-      }
+      const r = quickMotions();
+      made.push(...r.made);
+      skipped.push(...r.skipped);
       switchDirection(mainDir());
       renderDirBar();
-      quickReport = { made, skipped, dirs: directions().map((d) => d.dir), mirrored: side ? ["W"] : [] };
-      $("#qcMsg").textContent = `Done: ${made.length} animations in ${quickReport.dirs.length} direction${quickReport.dirs.length > 1 ? "s" : ""}. Check the frame check and the parts (step 4) if something looks off.`;
+      quickReport = { made, skipped, dirs: directions().map((d) => d.dir), mirrored: side ? ["W"] : [], unsure };
+      const first = Object.keys(unsure)[0];
+      $("#qcMsg").textContent = first ? `Made ${made.length} animations, but the joints of ${Object.keys(unsure).map((d) => DIRECTION_LABEL[d]).join(", ")} were not found (${unsure[first]}): click them below, then Use these joints.` : `Done: ${made.length} animations in ${quickReport.dirs.length} direction${quickReport.dirs.length > 1 ? "s" : ""}. Check the joints below; if one is off, drag it and press Use these joints.`;
+      jointsEditor.show(first || "S");
       $("#qcResult").replaceChildren(...[
         `Directions: ${quickReport.dirs.map((d) => `${DIRECTION_LABEL[d]} (${d})${d === "W" && side ? ", your side image mirrored" : ""}`).join(", ")}.${side ? "" : " Add a side image for left and right."} The back view is not made yet.`,
         `Rows: ${made.join(", ")}.`,
@@ -19776,9 +20154,22 @@ self.onmessage = async e => {
   }
   function syncQuick() {
     $("#qcGo").disabled = quickBusy || !$("#qcFront").files.length;
+    $("#qcJointsUse").disabled = quickBusy || !!jointsEditor.info().todo.length;
     $("#qcFront").disabled = $("#qcSide").disabled = quickBusy;
   }
   for (const id of ["#qcFront", "#qcSide"]) $(id).addEventListener("change", syncQuick);
+  var jointsEditor = initJointsEditor({
+    $,
+    // the working image of a direction, decoded
+    imageOf: async (dir) => {
+      const rest = dir === mainDir() ? importedAsset && importedAsset.rest : viewOf(dir) && viewOf(dir).rest;
+      if (!rest || !rest.work) return null;
+      decodeWork(rest.work);
+      await waitUntil(() => workRGBA.has(rest.work.dataUrl), "decoding the image", 1e4);
+      return { rgba: workRGBA.get(rest.work.dataUrl), S: rest.work.size };
+    },
+    onUse: useJoints
+  });
   $("#qcGo").addEventListener("click", () => {
     if (hasImported() || edited) askGuard("Convert makes a new character and replaces the current one (its image, parts, joints and animations). Save the project first to keep it.", quickConvert);
     else quickConvert();
@@ -20819,7 +21210,11 @@ self.onmessage = async e => {
       return timeline;
     },
     get quick() {
-      return { busy: quickBusy, report: quickReport };
+      return { busy: quickBusy, report: quickReport, joints: jointsEditor.info() };
+    },
+    // tests: landmarks to use instead of the pose model (a function of the direction; null: the model)
+    set quickPose(fn) {
+      quickPoseOverride = fn;
     },
     get importInfo() {
       return importPanel.info();
@@ -20850,6 +21245,11 @@ self.onmessage = async e => {
     directions,
     get autosaveReduced() {
       return autosaveReduced;
+    },
+    // the working image the parts are cut from ({ dataUrl, size }), of the direction shown
+    get restWork() {
+      const r = curRest();
+      return r && r.work ? { dataUrl: r.work.dataUrl, size: r.work.size, N: r.N } : null;
     },
     get partsInfo() {
       return partsPanel.info();

@@ -1809,7 +1809,7 @@
     { name: "hurt", template: "hurt" },
     { name: "death", template: "death" }
   ];
-  var quickBusy = false, quickReport = null;
+  var quickBusy = false, quickReport = null, quickPoseOverride = null;
   const waitUntil = async (ok, what, ms = 6e4) => {
     const t0 = Date.now();
     while (!ok()) {
@@ -1830,8 +1830,17 @@
     const blob = await new Promise((r) => c.toBlob(r, "image/png"));
     return new File([blob], file.name.replace(/\.[^.]+$/, "") + "-mirrored.png", { type: "image/png" });
   }
-  // steps 1-5 for one image, on the direction steps 1-7 currently work on
-  async function quickSteps(file, label) {
+  // V8.0b: body parts and fixed joints from a body pose, on the direction steps 1-7 work on
+  function applyPose(j, how) {
+    const rest = curRest(), d = partsPanel.data();
+    const seg2 = poseSegmentation(j, d.rgba, d.size);
+    rest.rig = poseRig(seg2, j, rest.rig);
+    partsPanel.setSeg(seg2, `Body parts cut along the joints ${how}. Check them, paint what is off, or move a joint under Convert.`);
+    refreshRig();
+  }
+  // steps 1-5 for one image, on the direction steps 1-7 currently work on; returns why the pose
+  // model was not used ("" when it was)
+  async function quickSteps(file, label, dir) {
     const say = (t) => {
       $("#qcMsg").textContent = `${label}: ${t}\u2026`;
     };
@@ -1851,11 +1860,74 @@
     const view = curView(), restNow = () => view ? viewOf(view).rest : importedAsset && importedAsset.rest, before = restNow();
     $("#convApply").click();
     await waitUntil(() => restNow() && restNow() !== before, "using the pixel art as the sprite");
-    say("finding the body parts and joints");
     await waitUntil(() => partsPanel.readyFor(restNow()) && !$("#ptGuess").disabled, "the body parts step");
-    $("#ptGuess").click();
-    $("#rigSuggest").click();
+    say("finding the joints (body-pose model)");
+    const d = partsPanel.data();
+    let lm = null, why = "";
+    try {
+      lm = quickPoseOverride ? quickPoseOverride(dir) : await detectPose(d.rgba, d.size);
+    } catch (e) {
+      why = `the pose model could not load (${e.message})`;
+    }
+    const j = lm ? poseJoints(lm, d.size) : null, problem = why || poseProblem(j);
+    if (!problem) {
+      applyPose(j, "found by the pose model");
+      jointsEditor.set(dir, poseClickPoints(j), "model", `${Math.round(j.vis * 100)}% sure`);
+    } else {
+      // the rough guess from body proportions until the joints are clicked
+      $("#ptGuess").click();
+      $("#rigSuggest").click();
+      jointsEditor.set(dir, null, "guess", `Not found automatically: ${problem}. Until you click the joints, the parts are a rough guess.`);
+    }
     await new Promise((r) => setTimeout(r, 0));
+    return problem;
+  }
+  // every Convert motion in the given directions (all when none given)
+  function quickMotions(only = null) {
+    const made = [], skipped = [];
+    for (const d of directions()) {
+      if (only && !only.includes(d.dir)) continue;
+      const present = presentParts(d.rest, d.layers);
+      for (const m of QUICK_MOTIONS) {
+        let t = templateById(typeof m.template === "function" ? m.template(d.rest.rig) : m.template), chk = checkTemplate(t, d.rest.rig, present);
+        // a weapon not held in a hand in this view: punch instead
+        if (!chk.ok && t.id === "attack") {
+          t = templateById("punch");
+          chk = checkTemplate(t, d.rest.rig, present);
+        }
+        if (!chk.ok) {
+          skipped.push(`${m.name} ${DIRECTION_LABEL[d.dir]}: ${chk.reason}`);
+          continue;
+        }
+        const a = buildTemplate(t, d.rest, d.layers, { facing: FACING_OF[d.dir], ...m.frames ? { frames: m.frames, fps: m.fps, loop: m.loop } : {} });
+        addAnimationTo(d.dir, m.name, a, `${m.name} made by Convert (${t.name}). Every key can be edited here.`);
+        made.push(rowName(m.name, d.dir, mainDir()));
+      }
+    }
+    return { made, skipped };
+  }
+  // the joints were moved or clicked: cut that direction's parts again and remake its motions
+  async function useJoints(dir, pts) {
+    if (quickBusy) return;
+    quickBusy = true;
+    syncQuick();
+    try {
+      switchDirection(dir);
+      await waitUntil(() => partsPanel.readyFor(curRest()), "the body parts step");
+      applyPose(clickedJoints(pts), "you placed");
+      await waitUntil(() => directions().every((d) => d.layers), "decoding the images");
+      const r = quickMotions([dir]);
+      switchDirection(mainDir());
+      jointsEditor.set(dir, pts, "click");
+      jointsEditor.show(dir);
+      quickReport = { ...quickReport, remade: dir, made: r.made, skipped: r.skipped };
+      $("#qcMsg").textContent = `${DIRECTION_LABEL[dir]}: parts cut along your joints, ${r.made.length} animations made again.${r.skipped.length ? " Not made: " + r.skipped.join("; ") : ""}`;
+    } catch (e) {
+      $("#qcMsg").textContent = `Could not use the joints: ${e.message}.`;
+    } finally {
+      quickBusy = false;
+      syncQuick();
+    }
   }
   async function quickConvert() {
     const front = $("#qcFront").files[0], side = $("#qcSide").files[0];
@@ -1881,40 +1953,31 @@
         state.type = "character";
         regenerate();
       }
-      await quickSteps(front, "Front");
+      jointsEditor.clear();
+      const unsure = {};
+      const front0 = await quickSteps(front, "Front", "S");
+      if (front0) unsure.S = front0;
       setMainDirection("S");
       if (side) {
         for (const [d, file, label] of [["E", side, "Side (right)"], ["W", await mirroredFile(side), "Side (left, mirrored)"]]) {
           addDirection(d);
-          await quickSteps(file, label);
+          const why = await quickSteps(file, label, d);
+          if (why) unsure[d] = why;
         }
         switchDirection(mainDir());
       }
       $("#qcMsg").textContent = "Making the animations\u2026";
       // every direction's working image decoded (its parts are cut from it)
       await waitUntil(() => directions().every((d) => d.layers), "decoding the images");
-      for (const d of directions()) {
-        const present = presentParts(d.rest, d.layers);
-        for (const m of QUICK_MOTIONS) {
-          let t = templateById(typeof m.template === "function" ? m.template(d.rest.rig) : m.template), chk = checkTemplate(t, d.rest.rig, present);
-          // a weapon not held in a hand in this view: punch instead
-          if (!chk.ok && t.id === "attack") {
-            t = templateById("punch");
-            chk = checkTemplate(t, d.rest.rig, present);
-          }
-          if (!chk.ok) {
-            skipped.push(`${m.name} ${DIRECTION_LABEL[d.dir]}: ${chk.reason}`);
-            continue;
-          }
-          const a = buildTemplate(t, d.rest, d.layers, { facing: FACING_OF[d.dir], ...m.frames ? { frames: m.frames, fps: m.fps, loop: m.loop } : {} });
-          addAnimationTo(d.dir, m.name, a, `${m.name} made by Convert (${t.name}). Every key can be edited here.`);
-          made.push(rowName(m.name, d.dir, mainDir()));
-        }
-      }
+      const r = quickMotions();
+      made.push(...r.made);
+      skipped.push(...r.skipped);
       switchDirection(mainDir());
       renderDirBar();
-      quickReport = { made, skipped, dirs: directions().map((d) => d.dir), mirrored: side ? ["W"] : [] };
-      $("#qcMsg").textContent = `Done: ${made.length} animations in ${quickReport.dirs.length} direction${quickReport.dirs.length > 1 ? "s" : ""}. Check the frame check and the parts (step 4) if something looks off.`;
+      quickReport = { made, skipped, dirs: directions().map((d) => d.dir), mirrored: side ? ["W"] : [], unsure };
+      const first = Object.keys(unsure)[0];
+      $("#qcMsg").textContent = first ? `Made ${made.length} animations, but the joints of ${Object.keys(unsure).map((d) => DIRECTION_LABEL[d]).join(", ")} were not found (${unsure[first]}): click them below, then Use these joints.` : `Done: ${made.length} animations in ${quickReport.dirs.length} direction${quickReport.dirs.length > 1 ? "s" : ""}. Check the joints below; if one is off, drag it and press Use these joints.`;
+      jointsEditor.show(first || "S");
       $("#qcResult").replaceChildren(...[
         `Directions: ${quickReport.dirs.map((d) => `${DIRECTION_LABEL[d]} (${d})${d === "W" && side ? ", your side image mirrored" : ""}`).join(", ")}.${side ? "" : " Add a side image for left and right."} The back view is not made yet.`,
         `Rows: ${made.join(", ")}.`,
@@ -1932,9 +1995,22 @@
   }
   function syncQuick() {
     $("#qcGo").disabled = quickBusy || !$("#qcFront").files.length;
+    $("#qcJointsUse").disabled = quickBusy || !!jointsEditor.info().todo.length;
     $("#qcFront").disabled = $("#qcSide").disabled = quickBusy;
   }
   for (const id of ["#qcFront", "#qcSide"]) $(id).addEventListener("change", syncQuick);
+  var jointsEditor = initJointsEditor({
+    $,
+    // the working image of a direction, decoded
+    imageOf: async (dir) => {
+      const rest = dir === mainDir() ? importedAsset && importedAsset.rest : viewOf(dir) && viewOf(dir).rest;
+      if (!rest || !rest.work) return null;
+      decodeWork(rest.work);
+      await waitUntil(() => workRGBA.has(rest.work.dataUrl), "decoding the image", 1e4);
+      return { rgba: workRGBA.get(rest.work.dataUrl), S: rest.work.size };
+    },
+    onUse: useJoints
+  });
   $("#qcGo").addEventListener("click", () => {
     if (hasImported() || edited) askGuard("Convert makes a new character and replaces the current one (its image, parts, joints and animations). Save the project first to keep it.", quickConvert);
     else quickConvert();
@@ -2975,7 +3051,11 @@
       return timeline;
     },
     get quick() {
-      return { busy: quickBusy, report: quickReport };
+      return { busy: quickBusy, report: quickReport, joints: jointsEditor.info() };
+    },
+    // tests: landmarks to use instead of the pose model (a function of the direction; null: the model)
+    set quickPose(fn) {
+      quickPoseOverride = fn;
     },
     get importInfo() {
       return importPanel.info();
@@ -3006,6 +3086,11 @@
     directions,
     get autosaveReduced() {
       return autosaveReduced;
+    },
+    // the working image the parts are cut from ({ dataUrl, size }), of the direction shown
+    get restWork() {
+      const r = curRest();
+      return r && r.work ? { dataUrl: r.work.dataUrl, size: r.work.size, N: r.N } : null;
     },
     get partsInfo() {
       return partsPanel.info();

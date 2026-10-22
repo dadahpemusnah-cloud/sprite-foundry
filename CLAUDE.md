@@ -14,4 +14,6 @@ Single-page pixel-art sprite generator, published as a claude.ai artifact
   the Godot steps need `GODOT=<godot4 binary>`, e.g. Godot_v4.3-stable_linux.x86_64 from the
   godotengine GitHub releases). `tests/run-mutants.sh` checks the Godot tests still catch seeded bugs.
 - An intended export change: `node tests/baseline-exports.mjs --update`, and say why in the commit.
+- Publishing: `node tools/pose-files.mjs`, then publish index.html with dist/pose/* as supporting files at
+  pose/<same path> (the pose model, V8.0b). Tests that need it use `openPage({ serve: true })`.
 - cdnjs is blocked in cloud sessions: browser tests serve JSZip from node_modules (see tests/godot-export.mjs).
