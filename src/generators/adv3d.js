@@ -40,7 +40,20 @@
   // the head is drawn larger than life (as in most game sprites): everything of the head part is scaled
   // about the neck by A3_HEAD
   var A3_HEAD = 1.12, A3_NECK = [0, 34, 0];
-  const a3HeadXf = (l) => [A3_NECK[0] + (l[0] - A3_NECK[0]) * A3_HEAD, A3_NECK[1] + (l[1] - A3_NECK[1]) * A3_HEAD, A3_NECK[2] + (l[2] - A3_NECK[2]) * A3_HEAD];
+  // a head pose: pitch (nod, + looks down), yaw (turn, + to its left), roll (tilt, + to its left), degrees
+  function a3Rot(v, hr, inverse = false) {
+    let [x, y, z] = v;
+    const steps = [["roll", (a) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a), z]], ["pitch", (a) => [x, y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)]], ["yaw", (a) => [x * Math.cos(a) + z * Math.sin(a), y, -x * Math.sin(a) + z * Math.cos(a)]]];
+    for (const [k, f] of inverse ? steps.slice().reverse() : steps) {
+      const a = (hr && hr[k] || 0) * Math.PI / 180 * (inverse ? -1 : 1) * (k === "pitch" ? -1 : 1);
+      if (a) [x, y, z] = f(a);
+    }
+    return [x, y, z];
+  }
+  const a3HeadXf = (l, hr = null) => {
+    const r = a3Rot([(l[0] - A3_NECK[0]) * A3_HEAD, (l[1] - A3_NECK[1]) * A3_HEAD, (l[2] - A3_NECK[2]) * A3_HEAD], hr);
+    return [A3_NECK[0] + r[0], A3_NECK[1] + r[1], A3_NECK[2] + r[2]];
+  };
   // a stable pseudo-random value per small cell of the figure (texture that turns with it)
   function a3Hash(q) {
     const x = Math.floor(q[0] * 1.5), y = Math.floor(q[1] * 1.5), z = Math.floor(q[2] * 1.5);
@@ -95,11 +108,24 @@
     }
     const cloth = cls === "fighter" ? a3Mat(rc.pick([355, 215, 275, 5]), 62, 38) : cls === "wizard" ? a3Mat(rc.pick([228, 262, 205]), 58, 42) : cls === "paladin" ? a3Mat(rc.pick([0, 215, 210]), 65, 40) : cls === "rogue" ? a3Mat(rc.pick([355, 345, 260]), 58, 30) : cls === "barbarian" ? a3Mat(28, 35, 40) : a3Mat(rc.pick([105, 95, 125]), 36, 36);
     M.cloth = { ...cloth, kind: "cloth" };
-    M.glow = { kind: "glow", tones: a3Mat(rc.pick([195, 205, 285]), 90, 62, "metal").tones };
+    M.glow = { kind: "glow", tones: a3Mat(cls === "druid" ? 115 : rc.pick([195, 205, 285]), 90, 62, "metal").tones };
+    // V7.2: each class stands in its own way: joints that differ from the plain stance (arms down, feet
+    // under the hips), a head pose, and the face's expression
+    const POSE = {
+      fighter: { R: { elbow: [-10.6, 26, 2.4], wrist: [-8.2, 30, 4.4], hand: [-7.4, 31, 4.6] }, L: { elbow: [11.2, 25.6, -0.6], wrist: [8.4, 21.8, 1.8], hand: [7.6, 21.2, 2.6] }, stance: 1.3, head: { yaw: 6 }, face: { brows: "flat", eyes: "normal", mouth: "smirk", scar: true } },
+      paladin: { L: { elbow: [10.4, 25, 2.2], wrist: [8.2, 22, 6.2], hand: [7.6, 21.6, 6.8] }, stance: 1.1, face: { glow: true } },
+      barbarian: { R: { elbow: [-11, 24, 1.8], wrist: [-6.6, 19.8, 5.2], hand: [-5.6, 19.4, 5.8] }, L: { elbow: [11.4, 26.4, 1.6], wrist: [7.4, 27, 5.6], hand: [6.4, 27.4, 6.2] }, stance: 1.9, head: { pitch: -4 }, face: { brows: "angry", eyes: "normal", mouth: "shout", paint: true } },
+      rogue: { R: { elbow: [-9.4, 24.4, 1.6], wrist: [-8.8, 19.6, 4], hand: [-8.4, 18.6, 4.6] }, L: { elbow: [10, 25.4, -0.6], wrist: [7.6, 21.8, 1.6], hand: [6.8, 21.2, 2.4] }, stance: 1.2, head: { roll: 9, pitch: 7, yaw: -8 }, face: { brows: "raised", eyes: "narrow", mouth: "none" } },
+      wizard: { R: { elbow: [-10.2, 25.2, 2], wrist: [-10.6, 27.8, 3.6], hand: [-10.6, 28.6, 3.6] }, head: { pitch: 8 }, face: { brows: "bushy", eyes: "normal", mouth: "none" } },
+      druid: { L: { elbow: [10.2, 25.4, 1.6], wrist: [9.6, 25.6, 5.6], hand: [9.2, 26.4, 6.4] }, head: { pitch: -3 }, face: { brows: "flat", eyes: "closed", mouth: "line", mark: true } }
+    }[cls] || {};
     const P = [], add = (part, mat, s) => {
       if (part !== "head") return P.push({ part, mat, d: s.d, b: s.b });
-      const C = A3_NECK, k = A3_HEAD, inv = (p) => [C[0] + (p[0] - C[0]) / k, C[1] + (p[1] - C[1]) / k, C[2] + (p[2] - C[2]) / k];
-      P.push({ part, mat, d: (p) => s.d(inv(p)) * k, b: [...a3HeadXf(s.b), s.b[3] * k] });
+      const C = A3_NECK, k = A3_HEAD, hr = POSE.head, inv = (p) => {
+        const r = a3Rot([p[0] - C[0], p[1] - C[1], p[2] - C[2]], hr, true);
+        return [C[0] + r[0] / k, C[1] + r[1] / k, C[2] + r[2] / k];
+      };
+      P.push({ part, mat, d: (p) => s.d(inv(p)) * k, b: [...a3HeadXf(s.b, hr), s.b[3] * k] });
     };
     // the body: what each region is made of, and the build (w widens shoulders, chest and limbs)
     const BODY = {
@@ -112,10 +138,11 @@
     }[cls];
     const B = (k) => M[BODY[k]] || M[k], w = BODY.w, wz = 1 + (w - 1) * 0.6, robe = !!BODY.robe, plate = !!BODY.plate, druid = cls === "druid";
     // where the right hand is: gear for it is placed relative to this
-    const H = [-8.8 * w, 17, 1.1], RX = (x) => x - (8.8 * w - 8.8), LX = (x) => x + (8.8 * w - 8.8);
+    const H = [-8.8 * w, 17, 1.1], RX = (x) => x - (8.8 * w - 8.8), LX = (x) => x + (8.8 * w - 8.8), hands = {};
     for (const s of ["R", "L"]) {
       const X = (x) => (s === "R" ? -1 : 1) * x;
-      const J = { shoulder: [X(7.6 * w), 31.2, 0], elbow: [X(8.4 * w), 24.6, 0.4], wrist: [X(8.7 * w), 18.8, 0.9], hand: [X(8.8 * w), 17, 1.1], hip: [X(3 * w), 19.6, 0], knee: [X(3.2 * w), 10.8, 0.4], ankle: [X(3.2 * w), 2.6, 0], foot: [X(3.2 * w), 1.3, 1.1] };
+      const st = POSE.stance || 1, J = { shoulder: [X(7.6 * w), 31.2, 0], elbow: [X(8.4 * w), 24.6, 0.4], wrist: [X(8.7 * w), 18.8, 0.9], hand: [X(8.8 * w), 17, 1.1], hip: [X(3 * w), 19.6, 0], knee: [X((3.2 * w) * (1 + (st - 1) * 0.7)), 10.8, 0.4], ankle: [X(3.2 * w * st), 2.6, 0], foot: [X(3.2 * w * st), 1.3, 1.1], ...POSE[s] || {} };
+      hands[s] = J.hand;
       add("upperArm" + s, B("upper"), A3.cone(J.shoulder, J.elbow, 2.6 * w, 2.2 * w));
       add("forearm" + s, B("fore"), robe ? A3.cone(J.elbow, [J.wrist[0], J.wrist[1] - 0.3, J.wrist[2]], 2.2, 3) : A3.cone(J.elbow, J.wrist, 2.2 * w, 1.8 * w));
       add("hand" + s, B("hand"), A3.ell(J.hand, [1.7 * w, 2, 1.6 * w]));
@@ -166,10 +193,13 @@
       add("pelvis", M.leather, A3.ell([4.9, 20.1, 3.1], [1.4, 1.7, 1.1]));
       add("pelvis", M.gold, A3.box([0, 16.8, 4.5], [0.45, 1.7, 0.3]));
       add("pelvis", M.gold, A3.box([0, 17.6, 4.5], [1.3, 0.45, 0.3]));
-      add("weapon", M.metal, A3.cone([RX(-9.6), 18.8, 2.6], [RX(-15.2), 33.4, 4], 1, 0.6));
-      add("weapon", M.gold, A3.cone([RX(-7.4), 18.7, 1.6], [RX(-11.6), 17.3, 3.4], 0.6, 0.6));
-      add("weapon", M.leather, A3.cone([RX(-9), 17.4, 1.6], [RX(-8.3), 15.3, 1], 0.6, 0.6));
-      add("weapon", M.gold, A3.ell([RX(-8.1), 14.8, 0.9], [0.85, 0.85, 0.85]));
+      // the longsword rests on the right shoulder, blade up and back past the head
+      const h = hands.R, tip = [-12.4, 44.6, -4.2], u = vNorm(vSub(tip, h));
+      const along = (t) => [h[0] + u[0] * t, h[1] + u[1] * t, h[2] + u[2] * t];
+      add("weapon", M.metal, A3.cone(along(1.6), tip, 1, 0.55));
+      add("weapon", M.gold, A3.cone([h[0] - 1.9, h[1] + 1.2, h[2] - 0.4], [h[0] + 1.9, h[1] + 0.9, h[2] + 1.2], 0.6, 0.6));
+      add("weapon", M.leather, A3.cone(along(-0.6), along(-2.6), 0.6, 0.6));
+      add("weapon", M.gold, A3.ell(along(-3.2), [0.85, 0.85, 0.85]));
     } else if (cls === "wizard") {
       // a pointed hat with a broad brim and a gold band, white hair and a long beard below the mouth,
       // a robe to the ankles with a gold hem, an orb staff
@@ -185,9 +215,11 @@
       add("robe", M.cloth, A3.custom([0, 13, 0.4, 14], (p) => clothD(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.4, 9.6), p, 0.35)));
       add("robe", M.gold, A3.custom([0, 2, 0.6, 10.5], (p) => Math.max(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.55, 9.75), Math.abs(p[1] - 2.3) - 0.7)));
       add("torso", M.gold, A3.box([0, 26.2, 4.35], [0.55, 6, 0.45], 0.2));
-      add("weapon", M.wood, A3.cone([RX(-10.6), 0.6, 1.4], [RX(-10.6), 46, 1.4], 0.9, 0.8));
-      add("weapon", M.glow, A3.ell([RX(-10.6), 48, 1.4], [2.1, 2.1, 2.1]));
-      add("weapon", M.gold, A3.cyl([RX(-10.6), 45.8, 1.4], 1.3, 0.6));
+      // leaning on the staff: it stands through the raised right hand
+      const sx = hands.R[0], sz = hands.R[2];
+      add("weapon", M.wood, A3.cone([sx, 0.6, sz], [sx, 46, sz], 0.9, 0.8));
+      add("weapon", M.glow, A3.ell([sx, 48, sz], [2.1, 2.1, 2.1]));
+      add("weapon", M.gold, A3.cyl([sx, 45.8, sz], 1.3, 0.6));
     } else if (cls === "paladin") {
       // a closed golden helm with a visor slit and a crest, gold plate, a tabard, a kite shield with a cross
       // on the left arm, a sword pointing down
@@ -204,10 +236,12 @@
       add("cloak", M.cloth, A3.custom([0, 17, -2, 14], (p) => capeD(p, 31.5, 6.6, 10.2, -2.4)));
       add("cloak", M.gold, A3.custom([0, 4, -2, 11], (p) => capeTrim(p, 31.5, 6.6, 10.2, -2.4)));
       // the kite shield: a flat gold rim, a red face, a gold cross, held in front of the left forearm
-      const shieldD = (p, grow, zc, zh) => Math.max(Math.min(sdEllipsoid([p[0], p[1], 0], [LX(9.4), 23.4, 0], [3.9 + grow, 3.4 + grow, 1]), sdCone([p[0], p[1], 0], [LX(9.4), 22.6, 0], [LX(9.4), 14.8, 0], 3.7 + grow, 0.5 + grow)), Math.abs(p[2] - zc) - zh);
-      add("shield", M.gold, A3.custom([LX(9.4), 20.6, 4.6, 8.6], (p) => shieldD(p, 0, 4.6, 0.5)));
-      add("shield", M.red, A3.custom([LX(9.4), 20.6, 5.2, 8.6], (p) => shieldD(p, -0.8, 5.25, 0.3)));
-      add("shield", M.gold, A3.union(A3.box([LX(9.4), 20.8, 5.55], [0.55, 4.2, 0.2]), A3.box([LX(9.4), 22.6, 5.55], [2.4, 0.55, 0.2])));
+      // the shield is held forward on the left forearm, covering that side of the chest
+      const SX = hands.L[0] - 0.6, SZ = hands.L[2] + 1.5;
+      const shieldD = (p, grow, zc, zh) => Math.max(Math.min(sdEllipsoid([p[0], p[1], 0], [SX, 24.6, 0], [4.9 + grow, 4.2 + grow, 1]), sdCone([p[0], p[1], 0], [SX, 23.8, 0], [SX, 13.4, 0], 4.7 + grow, 0.6 + grow)), Math.abs(p[2] - zc) - zh);
+      add("shield", M.gold, A3.custom([SX, 20.8, SZ, 10.5], (p) => shieldD(p, 0, SZ, 0.5)));
+      add("shield", { ...a3Mat(355, 72, 44), kind: "matte" }, A3.custom([SX, 20.8, SZ + 0.6, 10.5], (p) => shieldD(p, -1, SZ + 0.65, 0.3)));
+      add("shield", M.gold, A3.union(A3.box([SX, 20.8, SZ + 0.95], [0.6, 5.4, 0.2]), A3.box([SX, 23.6, SZ + 0.95], [3, 0.6, 0.2])));
       add("weapon", M.metal, A3.cone([H[0] - 0.4, 15.4, 2.4], [H[0] - 2.2, 3.2, 6.2], 0.95, 0.5));
       add("weapon", M.gold, A3.cone([H[0] + 1.6, 16.2, 1.8], [H[0] - 2.2, 15.4, 2.8], 0.6, 0.6));
       add("weapon", M.gold, A3.ell([H[0] + 0.3, 19.2, 0.8], [0.8, 0.8, 0.8]));
@@ -222,9 +256,10 @@
       add("torso", M.leather, A3.cone([7.6, 31, 3.6], [-6.2, 21.6, 4.8], 0.6, 0.6));
       add("pelvis", M.fur, A3.cyl([0, 22.3, 0], 6.3 * w, 0.8));
       add("pelvis", M.leather, A3.custom([0, 16, 0, 9], (p) => clothD(Math.max(sdCone(p, [0, 21, 0], [0, 12.5, 0.3], 6.8 * w, 7.6 * w), 12.5 - p[1]), p, 0.25)));
-      add("weapon", M.wood, A3.cone([H[0], 7.5, 2.2], [H[0] - 0.4, 35, 2.8], 0.75, 0.7));
-      add("weapon", M.metal, A3.union(A3.ell([H[0] - 2.8, 31.6, 2.8], [2.4, 3.4, 0.6]), A3.ell([H[0] + 1.8, 31.6, 2.8], [1.4, 2.2, 0.55])));
-      add("weapon", M.leather, A3.cyl([H[0] - 0.2, 33.6, 2.7], 0.95, 0.9));
+      // the great axe gripped across the body in both fists, its head up by the left shoulder
+      const a0 = vSub(hands.R, [1.6, 2.2, 0.4]), dirA = vNorm(vSub(hands.L, hands.R)), a1 = [hands.L[0] + dirA[0] * 3.2, hands.L[1] + dirA[1] * 3.2, hands.L[2] + dirA[2] * 3.2];
+      add("weapon", M.wood, A3.cone(a0, a1, 0.75, 0.7));
+      add("weapon", M.metal, A3.union(A3.ell([a1[0] + 1.6, a1[1] + 1.2, a1[2] + 0.2], [1.4, 3.4, 0.6]), A3.ell([a1[0] - 1.2, a1[1] - 0.9, a1[2]], [1, 1.8, 0.5])));
     } else if (cls === "rogue") {
       // a deep red hood and a short cape, a scarf over the mouth, dark leather with straps and pouches,
       // a dagger held low
@@ -240,8 +275,10 @@
       add("torso", M.leather, A3.cone([6, 31.6, 3.8], [-5.6, 21.4, 4.2], 0.55, 0.55));
       add("pelvis", M.leather, A3.ell([4.6, 19.6, 3.3], [1.4, 1.7, 1.1]));
       add("pelvis", M.leather, A3.ell([-4.6, 19.6, 3.3], [1.4, 1.7, 1.1]));
-      add("weapon", M.metal, A3.cone([H[0] - 0.4, 15.6, 2], [H[0] - 1.6, 10.6, 4.6], 0.75, 0.35));
-      add("weapon", M.dark, A3.cone([H[0] + 1.2, 16.2, 1.6], [H[0] - 1.8, 15.6, 2.4], 0.5, 0.5));
+      // a dagger held in a reverse grip, the blade down along the forearm's line
+      const hr2 = hands.R;
+      add("weapon", M.metal, A3.cone([hr2[0] - 0.2, hr2[1] - 1.4, hr2[2] - 0.2], [hr2[0] - 0.8, hr2[1] - 6.4, hr2[2] - 2.4], 0.75, 0.3));
+      add("weapon", M.dark, A3.cone([hr2[0] + 1.3, hr2[1] - 1.2, hr2[2] + 0.2], [hr2[0] - 1.7, hr2[1] - 1.4, hr2[2] - 0.6], 0.5, 0.5));
     } else {
       // an antlered hood with a wide opening, a cloak around the shoulders, a leather tunic with a strap
       // and a pouch, a crook staff with leaves
@@ -259,6 +296,8 @@
       add("torso", M.boot, A3.cone([-5.8, 32, 3.9], [5.8, 21, 4.3], 0.55, 0.55));
       add("pelvis", M.leather, A3.ell([-4.6, 19.4, 3.3], [1.3, 1.6, 1.1]));
       add("cloak", M.cloth, A3.custom([0, 17, -1, 14], (p) => capeD(p, 32, 7.4, 10.4, 0.6)));
+      // a leaf of light floating over the raised left palm
+      add("shield", M.glow, A3.ell([hands.L[0], hands.L[1] + 2.4, hands.L[2] + 0.3], [1.2, 1.4, 1]));
       add("cloak", M.leather, A3.custom([0, 4, -1, 12], (p) => capeTrim(p, 32, 7.4, 10.4, 0.6)));
       add("head", M.cloth, A3.cone([0, 41.5, -6.2], [0, 35.8, -8.6], 1.8, 0.4));
       add("torso", M.boot, A3.cone([5.8, 32, 3.9], [-5.8, 21, 4.3], 0.6, 0.6));
@@ -267,7 +306,7 @@
       add("weapon", M.leaf, A3.union(A3.ell([RX(-10), 44.6, 2.4], [1.1, 0.7, 0.9]), A3.ell([RX(-11.2), 43.4, 0.4], [1, 0.7, 0.9])));
     }
     const iris = M.eye.tones[0];
-    return { parts: P, M, face: { white: "#f2ede4", iris, irisDark: mix(iris, "#000000", 0.45), brow: cls === "wizard" ? M.white.tones[1] : mix(M.hair.tones[1], "#000000", 0.25), lip: M.lip.tones[0] } };
+    return { parts: P, M, headRot: POSE.head || null, faceStyle: POSE.face || {}, face: { white: "#f2ede4", iris, irisDark: mix(iris, "#000000", 0.45), brow: cls === "wizard" ? M.white.tones[1] : mix(M.hair.tones[1], "#000000", 0.25), lip: M.lip.tones[0] } };
   }
   // a fold ripple on cloth: a small sine around the vertical axis, stronger towards the hem
   function clothD(d, p, amp) {
@@ -414,49 +453,113 @@
       }
     }
   }
-  // the face, drawn as exact pixels where the 3D head puts it: each eye a white and an iris (an iris
-  // alone when it turns away), a brow above it, the mouth; a feature is drawn only where it faces the
-  // camera and the head's skin is what is seen there (not a helmet, hood or beard in front of it)
+  // the face, drawn as exact pixels where the 3D head puts it, in the class's expression: brows (flat,
+  // angry, one raised, bushy), eyes (open, narrowed, closed), a mouth (line, smirk, shout), and marks (a
+  // scar, war paint, a leaf). A feature is drawn only where it faces the camera and the head's skin is
+  // what is seen there (not a helmet, hood or beard in front of it). A closed helm shows glowing eyes.
   function a3Face(fig, cells, px, { cy, sy, ct, st }) {
-    const N = A3_N, F = fig.face;
+    const N = A3_N, F = fig.face, S = fig.faceStyle || {}, hr = fig.headRot;
     if (!F) return;
     const toWorld = (l) => [l[0] * cy + l[2] * sy, l[1], -l[0] * sy + l[2] * cy];
     const project = (l0) => {
-      const l = a3HeadXf(l0), w = toWorld(l), up = w[1] * ct - w[2] * st;
+      const l = a3HeadXf(l0, hr), w = toWorld(l), up = w[1] * ct - w[2] * st;
       return { i: Math.floor(w[0] + N / 2), j: Math.floor(N - 1.6 - up), depth: 60 - (w[1] * st + w[2] * ct) };
     };
     // how much a point on the head (from the skull's centre) faces the camera
     const facing = (l) => {
-      const n = toWorld(vNorm(vSub(a3HeadXf(l), a3HeadXf([0, 39.4, 0.2]))));
+      const n = toWorld(vNorm(vSub(a3HeadXf(l, hr), a3HeadXf([0, 39.4, 0.2], hr))));
       return n[1] * st + n[2] * ct;
     };
-    const seen = (q) => {
-      const c = q.i >= 0 && q.j >= 0 && q.i < N && q.j < N ? cells[q.j * N + q.i] : null;
-      return c && c.part === "head" && c.mat === fig.M.skin && Math.abs(c.depth - q.depth) < 1.6;
+    const cellAt = (q) => q.i >= 0 && q.j >= 0 && q.i < N && q.j < N ? cells[q.j * N + q.i] : null;
+    const seen = (q, mat = fig.M.skin) => {
+      const c = cellAt(q);
+      return c && c.part === "head" && c.mat === mat && Math.abs(c.depth - q.depth) < 1.6;
     };
     const put = (i, j, colour) => {
       if (i >= 0 && j >= 0 && i < N && j < N && px[j * N + i]) px[j * N + i] = { part: "head", colour };
     };
+    const lid = mix(fig.M.skin.tones[0], "#000000", 0.25);
     for (const k of [-1, 1]) {
       const at = [2.2 * k, 39.4, 5], f = facing(at), q = project(at);
+      if (S.glow) {
+        // eyes glowing in the visor's slit
+        const g = project([2.2 * k, 39.6, 6.6]);
+        if (f > 0.15 && seen(g, fig.M.dark)) {
+          put(g.i, g.j, "#e8f6ff");
+          if (f > 0.55) put(g.i + (k > 0 ? -1 : 1) * (Math.sign(project([0, 39.6, 6.6]).i - g.i) || 1), g.j, "#9fd8ff");
+        }
+        continue;
+      }
       if (f < 0.2 || !seen(q)) continue;
       // which side of the eye is towards the nose, on screen
-      const nose = project([0, 39.4, 5.6]), inward = Math.sign(nose.i - q.i) || -k;
-      if (f > 0.55) {
-        put(q.i, q.j, inward > 0 ? F.white : F.iris);
-        put(q.i + 1, q.j, inward > 0 ? F.iris : F.white);
-        put(q.i, q.j + 1, inward > 0 ? F.iris : F.irisDark);
-        put(q.i + 1, q.j + 1, inward > 0 ? F.irisDark : F.iris);
+      const nose = project([0, 39.4, 5.6]), inward = Math.sign(nose.i - q.i) || -k, wide = f > 0.55;
+      const iI = inward > 0 ? q.i + 1 : q.i, oI = inward > 0 ? q.i : q.i + 1;
+      if (S.eyes === "closed") {
+        // a closed eye: a lid line that curves down at its ends
+        put(q.i, q.j + 1, lid);
+        if (wide) put(q.i + 1, q.j + 1, lid);
+        put(oI, q.j, fig.M.skin.tones[2]);
+      } else if (S.eyes === "narrow") {
+        put(q.i, q.j, lid);
+        if (wide) put(q.i + 1, q.j, lid);
+        put(iI, q.j + 1, F.iris);
+        if (wide) put(oI, q.j + 1, F.irisDark);
+      } else if (wide) {
+        put(oI, q.j, F.white);
+        put(iI, q.j, F.iris);
+        put(oI, q.j + 1, F.irisDark);
+        put(iI, q.j + 1, F.iris);
       } else {
         put(q.i, q.j, F.iris);
         put(q.i, q.j + 1, F.irisDark);
       }
-      const b = project([2.2 * k, 41.3, 5]);
-      if (seen(b)) for (const di of f > 0.55 ? [0, 1] : [0]) put(b.i + di, b.j, F.brow);
+      // brows
+      const b = project([2.2 * k, 41.3, 5]), raised = S.brows === "raised" && k > 0 ? -1 : 0;
+      if (seen(b) || seen({ ...b, j: b.j + 1 })) {
+        const cols = wide ? [0, 1] : [0];
+        for (const di of cols) {
+          const inner = (inward > 0) === (di === 1);
+          const dj = S.brows === "angry" ? (inner ? 1 : 0) : S.brows === "bushy" ? (inner ? 0 : 1) : 0;
+          put(b.i + di, b.j + dj + raised, F.brow);
+        }
+        if (S.brows === "bushy" && wide) put(inward > 0 ? b.i - 1 : b.i + 2, b.j + 1, F.brow);
+      }
+      // war paint: a stripe down through the eye, from brow to cheek
+      if (S.paint) for (const dj of [-1, 2, 3]) put(oI, q.j + dj, "#b0302a");
     }
-    const m = project([0, 35.8, 5.3]);
-    if (facing([0, 35.8, 5.3]) > 0.25 && seen(m)) {
-      put(m.i, m.j, F.lip);
-      if (facing([0, 35.8, 5.3]) > 0.6) put(m.i - 1, m.j, F.lip);
+    // the mouth
+    const mAt = [0, 35.8, 5.3], m = project(mAt), mf = facing(mAt);
+    if (S.mouth !== "none" && mf > 0.25 && seen(m)) {
+      const side = Math.sign(project([1, 35.8, 5.3]).i - m.i) || 1;
+      if (S.mouth === "shout") {
+        // an open, shouting mouth: teeth along the top
+        const dark = mix(F.lip, "#000000", 0.5);
+        put(m.i, m.j, "#efe6d6");
+        put(m.i, m.j + 1, dark);
+        if (mf > 0.6) put(m.i - 1, m.j, "#efe6d6"), put(m.i - 1, m.j + 1, dark);
+      } else {
+        put(m.i, m.j, F.lip);
+        if (mf > 0.6) put(m.i - 1, m.j, F.lip);
+        // a smirk: one corner (the character's left) lifts
+        if (S.mouth === "smirk") put(m.i + side, m.j - 1, F.lip);
+      }
+    }
+    // a scar across the left cheek
+    if (S.scar) {
+      const c = project([3, 38, 4.8]);
+      if (facing([3, 38, 4.8]) > 0.3 && seen(c)) {
+        const sc = mix(fig.M.skin.tones[1], "#9a3a3a", 0.45);
+        put(c.i, c.j, sc);
+        put(c.i + 1, c.j + 1, sc);
+      }
+    }
+    // a leaf mark on the forehead
+    if (S.mark) {
+      const c = project([0, 42.3, 5.3]);
+      if (facing([0, 42.3, 5.3]) > 0.3 && seen(c)) {
+        put(c.i, c.j, "#4f9a3a");
+        put(c.i, c.j + 1, "#3c7a2c");
+      }
     }
   }
+
