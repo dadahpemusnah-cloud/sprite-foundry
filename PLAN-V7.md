@@ -1,6 +1,26 @@
 # Sprite Foundry — V7 plan (draft): richer generator, real motion, more directions
 
-Status: **draft, waiting on decisions** (below). Written 2026-10-22. V6.1 (Unity cutout) is on hold.
+Status: **V7.0 done** (Chibi in 8 directions). Written 2026-10-22. V6.1 (Unity cutout) is on hold.
+
+## Decisions (2026-10-22)
+1. Reference sheets: open source; used only as motion reference, no pixels copied.
+2. Fourth motion: read as **Sneak** (same rhythm as the walk, smaller leg movement: measured frame-to-frame
+   change 2093 vs the walk's 2421 and the run's 3607, legs kept close). [UNCERTAIN: the sheet is unnamed]
+3. 8 directions straight away. 4. 32 px (the references' cell size; fits a 36×36 frame). 5. V7 first.
+
+## Progress
+- **V7.0 done**: sprite type **Chibi**. One design from the seeds (9 hair styles, 5 outfits, sleeves,
+  belt, blush, colour ramps) drawn as 15 body parts in S, N, E, SE, NE; W, SW, NW are the mirrors with
+  left and right parts swapped. Each direction is stored exactly as a 32 px PNG converted 1:1 (step 3),
+  with parts (step 4), joints and drawing order (step 5) and the covered parts of each limb as hidden
+  areas (step 7), so it saves, reopens and edits like an imported character. Idle, walk, run and sneak,
+  8 frames each, in all 8 directions (33 rows with the rest pose). New: Sneak template; Run builds itself
+  at other frame counts (no loop jump); Auto Animate covers all 8 directions and Walk/Run/Sneak/Idle.
+  The chibi's head is kept nearly level when the body leans. Variations row shows 12 chibis turning.
+  Fixed on the way: an unchanged seed no longer rebuilds the sprite (it swallowed clicks).
+  Tests: `tests/chibi.mjs`; all 14 groups pass with Godot 4.3; export baseline unchanged.
+  Limits: Frame check keeps up to 5 "held frame" warnings on idle; the chibi's Godot cutout scenes are
+  written but not loaded in Godot by the tests (the Godot test imports an image).
 
 ## The request
 1. Is the generator limited to the sprites it makes today (Character, Creature, Ship, Item, RPG Hero)?

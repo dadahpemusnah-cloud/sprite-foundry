@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full regression: build check, export baseline, editor smoke, template directions, direction
-# switch races, Auto Animate, Godot cutout
+# switch races, Auto Animate, Chibi (V7), Godot cutout
 # (front view with all 7 presets + sparse keys; side view idle). Godot steps need GODOT=<godot4 binary>.
 # usage: tests/run-all.sh [chromium|webkit]
 set -uo pipefail
@@ -18,6 +18,7 @@ step frame-chk  node tests/frame-check.mjs
 step phaser    node tests/phaser-walk.mjs
 step phone     node tests/phone-width.mjs
 step help      node tests/help-links.mjs
+step chibi     node tests/chibi.mjs
 if [ -n "${GODOT:-}" ]; then
   step godot-front env SF_SPARSE=1 SF_ANIMS=anIdle,anWalk,anAttack,anRun,anJump,anHurt,anDeath tests/run-godot-check.sh "$W/gf" "$SF_ENGINE"
   step godot-side  env SF_IMAGE=tests/character-side.png SF_ANIMS=anIdle tests/run-godot-check.sh "$W/gs" "$SF_ENGINE"

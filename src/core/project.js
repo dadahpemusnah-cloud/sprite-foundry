@@ -40,7 +40,7 @@
       app: "Sprite Foundry",
       savedAt,
       settings,
-      generator: { type: sprite3.type, N: sprite3.N, shapeSeed: sprite3.seedShape, colorSeed: sprite3.seedColor, heroVersion: sprite3.type === "hero" ? HERO_GENERATOR_VERSION : null, version: GENERATOR_VERSIONS[sprite3.type] },
+      generator: { type: state2.type === "chibi" && sprite3.type === "imported" ? "chibi" : sprite3.type, N: sprite3.N, shapeSeed: sprite3.seedShape, colorSeed: sprite3.seedColor, heroVersion: sprite3.type === "hero" ? HERO_GENERATOR_VERSION : null, version: GENERATOR_VERSIONS[state2.type === "chibi" && sprite3.type === "imported" ? "chibi" : sprite3.type] },
       colours,
       sprite: { edited: !!edited2, order: sprite3.order.slice(), tags, px, tag, meta: JSON.parse(JSON.stringify(sprite3.meta)) },
       timeline: { order: timeline2.order.slice(), anims },
@@ -215,7 +215,7 @@
   }
   function restoreProject(project) {
     const st = project.settings, g = project.generator;
-    const opts2 = g.type === "hero" ? { cls: st.heroClass, locks: st.heroLocks, colourCls: st.lockColours ? st.heroColourClass : null } : g.type === "imported" ? { asset: project.asset } : {};
+    const opts2 = g.type === "hero" ? { cls: st.heroClass, locks: st.heroLocks, colourCls: st.lockColours ? st.heroColourClass : null } : TYPES[g.type].sizeFromAsset ? { asset: project.asset } : {};
     const sprite3 = generate(g.type, g.N, g.shapeSeed, g.colorSeed, opts2);
     if (project.base) {
       sprite3.px = project.base.px.slice();

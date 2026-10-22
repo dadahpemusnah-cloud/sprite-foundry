@@ -297,7 +297,7 @@
     const w2 = weaponReach(rig);
     return w2 ? { reach: { ...w2, prefer: "steady" } } : {};
   }
-  function presetRun(rig, facing = "right", info = null) {
+  function presetRun(rig, facing = "right", info = null, frames = 0) {
     const d = D(facing), I = infoOr(rig, info);
     if (facing === "front") {
       const step2 = (S, O) => pose(
@@ -323,7 +323,48 @@
       // flight: both feet off the ground, legs folding through
       grounded(rig, I, pose(rig, { torso: -8 * F, thighL: -18 * F, shinL: -50 * F, thighR: 26 * F, shinR: -60 * F, upperArmL: 20 * F, upperArmR: -20 * F, forearmL: 70 * F, forearmR: 60 * F }), -2)
     ];
-    return { frames: 6, fps: 12, loop: true, facing, ground: [0, 1, 3, 4], air: { 2: 2, 5: 2 }, ...runReach(rig), keys: [...half2.map((p, i) => ({ t: i, ease: "linear", pose: p })), ...half2.map((p, i) => ({ t: i + 3, ease: "linear", pose: mirrorPose(p) }))] };
+    const cycle = [...half2, ...half2.map(mirrorPose)];
+    if (frames && frames !== 6) {
+      // another frame count (V7): a pose on every frame, evenly spaced around the 6-pose stride, as the walk does
+      const keys2 = Array.from({ length: frames }, (_, i) => {
+        const u = i * 6 / frames, k = Math.floor(u);
+        return { t: i, ease: "linear", pose: lerpPose(cycle[k], cycle[(k + 1) % 6], u - k) };
+      });
+      const flight = (i) => [2, 5].includes(Math.round(i * 6 / frames) % 6), air = {};
+      keys2.forEach((k) => {
+        if (flight(k.t)) air[k.t] = 2;
+      });
+      return { frames, fps: 12, loop: true, facing, ground: keys2.filter((k) => !flight(k.t)).map((k) => k.t), air, ...runReach(rig), keys: keys2 };
+    }
+    return { frames: 6, fps: 12, loop: true, facing, ground: [0, 1, 3, 4], air: { 2: 2, 5: 2 }, ...runReach(rig), keys: cycle.map((p, i) => ({ t: i, ease: "linear", pose: p })) };
+  }
+  // V7: sneak, the walk made slow and low: half-length steps on bent knees, the body leaning in, arms
+  // held up and forward (from the front: lower, smaller steps, forearms raised)
+  function presetSneak(rig, facing = "right", info = null, frames = 0) {
+    const walk = presetWalk(rig, facing, info, frames), I = infoOr(rig, info), d = D(facing), F = -d;
+    const keys = walk.keys.map((k) => {
+      const p = clonePose(k.pose);
+      if (facing === "front") {
+        for (const id of Object.keys(p.off)) if (/^(shin|foot)[LR]$/.test(id)) p.off[id] = p.off[id].map((v) => Math.round(v / 2));
+        for (const id of Object.keys(p.rot)) if (/^(thigh|upperArm)[LR]$/.test(id)) p.rot[id] = r1(p.rot[id] / 2);
+        p.off.torso = [0, ((p.off.torso || [0, 0])[1] > 0 ? 4 : 2)];
+        if (has(rig, "forearmL")) p.rot.forearmL = 25;
+        if (has(rig, "forearmR")) p.rot.forearmR = -25;
+        return { ...k, pose: p };
+      }
+      p.root = [p.root[0], 0];
+      for (const s of ["L", "R"]) {
+        delete p.rot["foot" + s];
+        const half = (id) => (p.rot[id] || 0) / 2;
+        if (has(rig, "thigh" + s)) p.rot["thigh" + s] = r1(half("thigh" + s) + 12 * F);
+        if (has(rig, "shin" + s)) p.rot["shin" + s] = r1(half("shin" + s) - 24 * F);
+        if (has(rig, "upperArm" + s)) p.rot["upperArm" + s] = r1(half("upperArm" + s) + 16 * F);
+        if (has(rig, "forearm" + s)) p.rot["forearm" + s] = r1(45 * F);
+      }
+      if (has(rig, "torso")) p.rot.torso = r1(-6 * F);
+      return { ...k, pose: grounded(rig, I, p) };
+    });
+    return { ...walk, fps: 8, keys };
   }
   function presetJump(rig, facing = "right", info = null) {
     const I = infoOr(rig, info), up = Math.max(1, I.top - 2), d = facing === "front" ? 1 : D(facing), F = -d;
@@ -639,6 +680,7 @@
     walk: presetWalk,
     attack: presetAttack,
     run: presetRun,
+    sneak: presetSneak,
     jump: presetJump,
     hurt: presetHurt,
     death: presetDeath,

@@ -10,10 +10,10 @@
         {
           title: "Choose what to make",
           go: "#typeSeg",
-          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
-          do: "Under Sprite type, click Character, Creature, Ship, Item or RPG Hero. Under Sprite size, click a size such as 12 px or 32 px.",
+          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("Chibi", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
+          do: "Under Sprite type, click Character, Creature, Ship, Item, RPG Hero or Chibi. Under Sprite size, click a size such as 12 px or 32 px.",
           expect: "The preview in the middle shows a new sprite of that type, and the Variations row at the bottom fills with others like it.",
-          watch: 'RPG Hero always uses a 28 px sprite, so the size buttons are switched off for it. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
+          watch: 'RPG Hero always uses a 28 px sprite and Chibi a 32 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak; 8 frames each); its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
           undo: "Click the type or size you had before. If the app asked you, Cancel keeps everything as it was."
         },
         {
@@ -153,12 +153,12 @@
           undo: "Test poses are previews only and are never saved. Reset pose returns to the exact rest pose."
         },
         {
-          title: "6 \xB7 Auto Animate: walk in four directions",
+          title: "6 \xB7 Auto Animate: one motion in every direction",
           go: "#aaPanel",
           appears: "with parts and joints",
           controls: [C("Preview", "#aaPreview"), C("Apply", "#aaApply"), C("Undo", "#aaUndo"), C("frames per direction", "#aaFrames"), C("speed", "#aaFps")],
-          do: "Give each direction you want its own image (Image to pixel art, Direction: down S, up N, left W, right E) with parts and joints. In Auto Animate, tick the directions, keep 12 frames at 10 fps or change them, click Preview to watch every direction side by side, then Apply.",
-          expect: "One walk row per direction (walk, walk_n, walk_w, walk_e; or walk_down\u2026 in exports with screen direction names), each an ordinary animation you can edit in Manual or frame by frame.",
+          do: "Give each direction you want its own image (Image to pixel art, Direction: down S, up N, left W, right E, or the diagonals) with parts and joints; a Chibi has all 8 already. In Auto Animate, choose the motion (Walk, Run, Sneak or Idle), tick the directions, keep the frames and speed or change them, click Preview to watch every direction side by side, then Apply.",
+          expect: "One row per direction (walk, walk_n, walk_w, walk_e, walk_se\u2026; or walk_down, walk_down_right\u2026 in exports with screen direction names), each an ordinary animation you can edit in Manual or frame by frame.",
           watch: "A direction without its own image is listed and skipped: the app does not invent a back or side view. The frame check catches gaps, ground and jumps, not whether the walk looks natural: watch for sliding feet and crossing limbs.",
           undo: "Undo in Auto Animate removes the walk from every direction at once; it asks first if you edited it since. An existing walk is only replaced after you confirm."
         },
@@ -278,7 +278,8 @@
       go: "#typeSeg",
       summary: "Makes a sprite from seeds. The left column of the Sprite Foundry page.",
       items: [
-        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, or Imported (your own image, made in Image to pixel art)." },
+        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, Chibi, or Imported (your own image, made in Image to pixel art)." },
+        { ...C("Chibi", "#typeSeg"), text: "A 32 px character drawn as body parts with joints in all 8 directions (down, up, left, right and the diagonals), with idle, walk, run and sneak in every direction, 8 frames each. The seeds and variations draw a new one (hair, outfit, colours); it asks first if you changed its parts, joints or animations. The left-facing directions mirror the right-facing ones." },
         { ...C("Sprite size", "#sizeSeg"), text: "12, 16, 24 or 32 px. RPG Hero is always 28 px; Imported uses the size chosen in step 3. Each frame has 2 px of room around the sprite." },
         { ...C("Outline", "#outlineSeg"), text: "Tinted, Black or None. Drawn around the figure in every frame." }
       ]
@@ -430,7 +431,7 @@
         { ...C("Aseprite .aseprite", "#aseBtn"), text: "Every animation as a tag, for Aseprite." },
         { ...C("Full pack .zip", "#zipBtn"), text: "Sheet, JSON, GIFs and single frames in one zip." },
         { ...C("Export preset", "#exportPreset"), text: "Phaser, Full pack, Individual PNG frames, Animated GIF previews, Godot 4, Unity, or a trimmed packed atlas. Export .zip writes it with manifest.json." },
-        { ...C("direction names", "#dirNames"), text: "For an animation drawn in several directions: compass names (walk, walk_n, walk_w, walk_e) or screen names (walk_down, walk_up, walk_left, walk_right) in every export." }
+        { ...C("direction names", "#dirNames"), text: "For an animation drawn in several directions: compass names (walk, walk_n, walk_w, walk_e, walk_se\u2026) or screen names (walk_down, walk_up, walk_left, walk_right, walk_down_right\u2026) in every export." }
       ],
       more: "The Godot files, including the cutout scene, are loaded and played in Godot 4.3 by the project's tests, and the Phaser export in Phaser 3.90; the Unity files are checked against their format but have not been opened in Unity."
     },
@@ -563,10 +564,11 @@
       title: "6 \xB7 Auto Animate",
       go: "#aaPanel",
       appears: "with parts and joints",
-      summary: "One motion (walk) on down, up, left and right at once, each from its direction's own image.",
+      summary: "One motion (walk, run, sneak or idle) on every direction at once, each from its direction's own image.",
       items: [
-        { ...C("Auto Animate", "#aaPanel"), text: "At the top of step 6. Lists down (S), up (N), left (W), right (E) and says which need an image or parts and joints." },
-        { ...C("frames per direction", "#aaFrames"), text: "12 frames at 10 fps by default: 48 frames, 1.2 s per loop. The name is walk unless you change it." },
+        { ...C("Auto Animate", "#aaPanel"), text: "At the top of step 6. Lists down (S), up (N), left (W), right (E) and the diagonals, and says which need an image or parts and joints." },
+        { ...C("motion", "#aaMotion"), text: "Walk (12 frames, 10 fps), Run (8 frames, 12 fps), Sneak (8 frames, 8 fps: a slow, low walk) or Idle (8 frames, 6 fps)." },
+        { ...C("frames per direction", "#aaFrames"), text: "Set by the motion (walk: 12 frames at 10 fps, 1.2 s per loop). The name is the motion's unless you change it." },
         { ...C("Preview", "#aaPreview"), text: "Every chosen direction side by side, with its frame-check warnings; Play runs them in step. Nothing is added yet." },
         { ...C("Apply", "#aaApply"), text: "Adds the animation to every chosen direction; asks before replacing one of the same name." },
         { ...C("Undo", "#aaUndo"), text: "Undo and Redo act on every direction at once." }
@@ -742,6 +744,7 @@
   ];
   var LIMITS = [
     "The 2.5D Workshop draws a flat sprite that looks isometric; it is not a 3D model. Every direction and frame is drawn by you.",
+    "Chibi draws its own body parts in 8 directions from one design, so its back and side views are real drawings, not guesses; they are made by rules, so they look generated rather than hand-drawn. The left-facing views mirror the right-facing ones.",
     "Image rigging moves and turns the parts you assign. One image cannot show the back, the sides, or details it does not contain: add an image per direction, or paint hidden areas yourself.",
     "Background removal, Rough guess, Suggest joints, Fill automatically, the rig preflight and the frame check are helpers. They give a starting point and catch common problems; check their results.",
     'Nothing in Help changes your sprite: tutorials are instructions only, and "Show me" only scrolls to the control.'

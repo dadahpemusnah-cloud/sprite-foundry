@@ -826,9 +826,9 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
         <p class="hint">Checks the parts, joints and rest pose before you animate. "Needs attention" items do not stop you; each button opens the step that fixes it.</p>
       </div>
       <details class="group auto-anim" id="aaPanel" open>
-        <summary class="label">Auto Animate · four directions</summary>
+        <summary class="label">Auto Animate · every direction</summary>
         <div class="row">
-          <label class="field" for="aaMotion">motion <select id="aaMotion"><option value="walk">Walk</option></select></label>
+          <label class="field" for="aaMotion">motion <select id="aaMotion"><option value="walk">Walk</option><option value="run">Run</option><option value="sneak">Sneak</option><option value="idle">Idle</option></select></label>
           <span class="hint">Procedural: the rig's walk, made for each direction from that direction's own image.</span>
         </div>
         <ul class="tm-dirs" id="aaDirs" aria-label="Directions to animate"></ul>
@@ -846,7 +846,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
           <button id="aaRedo" type="button" disabled>Redo</button>
           <span class="hint mono" id="aaFrameLabel"></span>
         </div>
-        <div class="import-view bg-checker aa-view" id="aaView" hidden><canvas id="aaCanvas" width="1" height="1" aria-label="Preview of every chosen direction, in the order down, up, left, right"></canvas></div>
+        <div class="import-view bg-checker aa-view" id="aaView" hidden><canvas id="aaCanvas" width="1" height="1" aria-label="Preview of every chosen direction, in the order down, up, left, right, then the diagonals, four to a row"></canvas></div>
         <ul class="hint an-warn" id="aaWarn"></ul>
         <p class="hint" id="aaMsg" role="status"></p>
         <p class="hint">Each direction needs its own image with parts and joints: the app does not invent a back or side view. Applying adds an ordinary animation per direction that you can edit in Manual or frame by frame; an existing animation of the same name is only replaced after you confirm. The frame check catches gaps, ground and jumps, not whether the walk looks natural: watch the preview for sliding feet and crossing limbs.</p>
@@ -2085,6 +2085,236 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     return s;
   }
 
+  // src/generators/chibi.js
+  // V7: a chibi character drawn as separate body parts in all 8 directions, from one design. Each part
+  // is drawn whole (also where another part covers it), so the rig can move it without holes. The
+  // left-facing views are the right-facing ones mirrored with left and right parts swapped: the
+  // design is symmetric. 32 px, feet on row 30.
+  var CHIBI_N = 32;
+  var CHIBI_VERSION = 1;
+  var CHIBI_HAIR = ["short", "short", "long", "spiky", "bob", "ponytail", "bun", "bald", "cap"];
+  var CHIBI_OUTFIT = ["plain", "plain", "tunic", "vest", "stripe"];
+  // where each view is drawn from: its own drawing, or the mirror of the opposite one
+  var CHIBI_BASE = { S: "S", N: "N", E: "E", SE: "SE", NE: "NE", W: "E", SW: "SE", NW: "NE" };
+  var CHIBI_PARTS = ["thighL", "shinL", "footL", "thighR", "shinR", "footR", "pelvis", "torso", "head", "upperArmL", "forearmL", "handL", "upperArmR", "forearmR", "handR"];
+  function chibiDesign(shapeSeed, colourSeed) {
+    const rs = seedRng("chibi:" + shapeSeed), rc = seedRng("chibi-colour:" + colourSeed);
+    const fantasy = rc.chance(0.12), skin = fantasy ? rc.pick(FANTASY_SKIN) : rc.pick(SKIN);
+    const hairHue = rc.pick([28, 22, 40, 48, 8, 275, 200, 330, 0, 120]);
+    const hair = ramp(hairHue, rc.range(35, 75), rc.pick([18, 28, 40, 55, 68]));
+    const shirtHue = rc() * 360, shirt = ramp(shirtHue, rc.range(40, 75), rc.range(40, 55));
+    const accent = ramp((shirtHue + rc.pick([150, 180, 210])) % 360, rc.range(40, 70), rc.range(45, 60));
+    const pants = ramp(rc() * 360, rc.range(15, 45), rc.range(24, 38));
+    const shoe = ramp(20 + rc() * 25, 35, 22), hat = ramp(rc() * 360, rc.range(45, 70), rc.range(35, 50));
+    const eye = rc.pick(["#2a1d1a", "#1d2a4a", "#1f3a24", "#3a1d3a"]);
+    return {
+      shape: String(shapeSeed),
+      colour: String(colourSeed),
+      hair: rs.pick(CHIBI_HAIR),
+      outfit: rs.pick(CHIBI_OUTFIT),
+      sleeves: rs.chance(0.5) ? "long" : "short",
+      belt: rs.chance(0.6),
+      blush: rs.chance(0.4),
+      colours: { skin: { hi: skin[0], base: skin[1], sh: skin[2], sh2: mix(skin[2], "#000000", 0.3) }, hair, shirt, accent, pants, shoe, hat, eye, metal: ramp(44, 70, 55) }
+    };
+  }
+  // the head's outline (hair rows 4-5 included): [y, x0, x1]
+  var CHIBI_HEAD = [[4, 11, 20], [5, 10, 21], ...[6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((y) => [y, 9, 22]), [16, 10, 21]];
+  var CHIBI_SIDE_HEAD = [[4, 11, 19], [5, 10, 20], ...[6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((y) => [y, 9, 21]), [16, 10, 20]];
+  function chibiCanvas() {
+    const layers = {};
+    const put = (id, x, y, c) => {
+      if (x < 0 || y < 0 || x >= CHIBI_N || y >= CHIBI_N || !c) return;
+      (layers[id] = layers[id] || /* @__PURE__ */ new Map()).set(y * CHIBI_N + x, c);
+    };
+    // a block with light from the upper left: left column hi, right column sh, last row sh
+    const block = (id, x0, y0, x1, y1, r, { left = "hi", right = "sh", bottom = null } = {}) => {
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        let c = r.base;
+        if (bottom && y === y1) c = r[bottom];
+        else if (x === x1 && x1 > x0 && right) c = r[right];
+        else if (x === x0 && x1 > x0 && left) c = r[left];
+        put(id, x, y, c);
+      }
+    };
+    return { layers, put, block };
+  }
+  // a darker copy of a ramp, for limbs on the far side
+  const farRamp = (r) => ({ hi: r.base, base: r.sh, sh: r.sh2, sh2: mix(r.sh2, "#000000", 0.3) });
+  function chibiLeg(cv, s, x, r, { far = false, toe = 0 } = {}) {
+    const pants = far ? farRamp(r.pants) : r.pants, shoe = far ? farRamp(r.shoe) : r.shoe;
+    cv.block("thigh" + s, x, 25, x + 3, 26, pants);
+    cv.block("shin" + s, x, 27, x + 3, 28, pants, { bottom: "sh" });
+    cv.block("foot" + s, x + Math.min(0, toe), 29, x + 3 + Math.max(0, toe), 30, shoe, { bottom: "sh" });
+  }
+  function chibiArm(cv, s, x, d, { far = false, edge = null } = {}) {
+    const C = d.colours, sleeve = far ? farRamp(C.shirt) : C.shirt, skin = far ? farRamp(C.skin) : C.skin;
+    cv.block("upperArm" + s, x, 17, x + 1, 20, sleeve);
+    cv.block("forearm" + s, x, 21, x + 1, 22, d.sleeves === "long" ? sleeve : skin);
+    cv.block("hand" + s, x, 23, x + 1, 24, skin, { bottom: "sh" });
+    // an arm in front of the body carries a dark edge on its back side, so it reads against the shirt
+    if (edge !== null) for (let y = 18; y <= 22; y++) cv.put(y <= 20 ? "upperArm" + s : "forearm" + s, edge, y, C.shirt.sh2);
+  }
+  function chibiBody(cv, d, x0, x1, { collar = null } = {}) {
+    const C = d.colours, tunic = d.outfit === "tunic";
+    cv.block("torso", x0, 17, x1, 22, C.shirt);
+    if (d.outfit === "vest") for (let y = 17; y <= 22; y++) for (const x of [x0, x0 + 1, x1 - 1, x1]) cv.put("torso", x, y, x === x1 ? C.accent.sh : C.accent.base);
+    if (d.outfit === "stripe") for (let x = x0; x <= x1; x++) cv.put("torso", x, 20, x === x1 ? C.accent.sh : C.accent.base);
+    if (collar !== null) for (const x of [collar, collar + 1]) cv.put("torso", x, 17, C.skin.base);
+    cv.block("pelvis", x0, 23, x1, 24, tunic ? C.shirt : C.pants, { bottom: tunic ? "sh" : null });
+    if (d.belt) for (let x = x0; x <= x1; x++) cv.put("pelvis", x, 23, x === (x0 + x1 >> 1) ? C.metal.base : C.shoe.sh);
+  }
+  // skin of the head plus hair, for one view; `hairAt(x, y)` says which head pixels are hair
+  function chibiHead(cv, d, rows, hairAt, face) {
+    const C = d.colours, bald = d.hair === "bald", capped = d.hair === "cap", H = capped ? C.hat : C.hair;
+    for (const [y, x0, x1] of rows) for (let x = x0; x <= x1; x++) {
+      const hair = !bald && hairAt(x, y);
+      if (!hair && y < 6 && !bald) continue;
+      if (hair) cv.put("head", x, y, y <= 5 && x < x1 - 2 ? H.hi : x === x1 || y === 16 ? H.sh : H.base);
+      else cv.put("head", x, y, x === x1 || y === 16 ? C.skin.sh : y === 6 || x === x0 ? C.skin.hi : C.skin.base);
+    }
+    if (face) face(C);
+  }
+  function chibiEye(cv, C, x, w2 = 2) {
+    for (let y = 11; y <= 13; y++) for (let i = 0; i < w2; i++) cv.put("head", x + i, y, y === 12 && i === 0 ? "#ffffff" : y === 13 ? C.eye : mix(C.eye, "#000000", 0.4));
+  }
+  // extra hair outside the head outline (spikes, long sides, ponytail, bun) for one view
+  function chibiHairExtra(cv, d, view) {
+    const C = d.colours, H = d.hair === "cap" ? C.hat : C.hair, put = (x, y, c = H.base) => cv.put("head", x, y, c);
+    if (d.hair === "spiky") for (const [x, y] of [[11, 3], [12, 2], [13, 3], [15, 3], [16, 2], [17, 2], [18, 3], [20, 3], [21, 4]]) put(x, y, y === 2 ? H.hi : H.base);
+    if (d.hair === "bun") for (const [x, y] of [[14, 2], [15, 2], [16, 2], [17, 2], [13, 3], [14, 3], [15, 3], [16, 3], [17, 3], [18, 3], [15, 1], [16, 1]]) put(x, y, y < 3 ? H.hi : H.base);
+    if (d.hair === "cap") {
+      // the brim points the way the character faces
+      const brim = { S: [8, 23], N: null, E: [16, 24], SE: [10, 24], NE: [18, 23] }[view];
+      if (brim) for (let x = brim[0]; x <= brim[1]; x++) put(x, 8, H.sh);
+    }
+    if (d.hair === "long") {
+      const sides = { S: [[8, 9], [22, 23]], N: [[8, 23]], E: [[8, 11]], SE: [[8, 9], [23, 23]], NE: [[8, 21]] }[view];
+      for (const [a, b] of sides) for (let x = a; x <= b; x++) for (let y = 8; y <= 20; y++) if (view === "N" || view === "NE" || view === "E" || y >= 10 || x === 8 || x === 23) put(x, y, x === b && b > 20 ? H.sh : y >= 19 ? H.sh : H.base);
+    }
+    if (d.hair === "ponytail") {
+      const tail = { N: [[15, 16]], NE: [[13, 14]], E: [[7, 8]], SE: [[8, 8]], S: [] }[view];
+      for (const [a, b] of tail) for (let x = a; x <= b; x++) for (let y = 9; y <= 19; y++) put(x, y, y > 16 ? H.sh : H.base);
+    }
+    if (d.hair === "bob") {
+      const sides = { S: [8, 23], SE: [8, 23], E: [8, null], NE: [8, 23], N: [8, 23] }[view];
+      for (let y = 8; y <= 15; y++) {
+        if (sides[0] !== null) put(sides[0], y, H.base);
+        if (sides[1] !== null) put(sides[1], y, H.sh);
+      }
+    }
+  }
+  // which head pixels are hair: per view and style
+  function chibiHairMask(d, view) {
+    const len = d.hair === "long" || d.hair === "bob" ? 14 : 11;
+    return {
+      S: (x, y) => y <= 7 || y === 8 && x % 3 !== 1 || (x <= 9 || x >= 22) && y <= len,
+      N: (x, y) => y <= 15,
+      E: (x, y) => y <= 7 || x <= 15 && y <= (d.hair === "short" || d.hair === "spiky" || d.hair === "cap" ? 13 : 15) || y === 8 && x >= 16 && x <= 20 && x % 2 === 0,
+      SE: (x, y) => y <= 7 || y === 8 && x % 3 !== 2 || x <= 12 && y <= Math.max(len, 12) || x >= 22 && y <= 9,
+      NE: (x, y) => !(x >= 20 && y >= 10 && y <= 15)
+    }[view];
+  }
+  function chibiDraw(d, view) {
+    const cv = chibiCanvas(), C = d.colours;
+    const front = (eyes, mouth, far = 2) => (C2) => {
+      eyes.forEach((x, i) => chibiEye(cv, C2, x, i === eyes.length - 1 ? far : 2));
+      if (mouth !== null) cv.put("head", mouth, 15, C2.skin.sh);
+      if (d.blush) for (const x of [eyes[0] - 1, eyes[eyes.length - 1] + 2]) cv.put("head", x, 14, mix(C2.skin.base, "#ff6f8a", 0.35));
+    };
+    let order, pivots;
+    if (view === "S" || view === "N") {
+      const back = view === "N", R = back ? 21 : 9, Lx = back ? 9 : 21;
+      chibiLeg(cv, back ? "L" : "R", 12, C);
+      chibiLeg(cv, back ? "R" : "L", 16, C);
+      chibiBody(cv, d, 11, 20, { collar: back ? null : 15 });
+      chibiArm(cv, "R", R, d);
+      chibiArm(cv, "L", Lx, d);
+      chibiHead(cv, d, CHIBI_HEAD, chibiHairMask(d, view), back ? null : front([12, 18], 15));
+      if (!back) cv.put("head", 16, 15, C.skin.sh);
+      chibiHairExtra(cv, d, view);
+      order = ["thighL", "shinL", "footL", "thighR", "shinR", "footR", "pelvis", "torso", "upperArmL", "forearmL", "handL", "upperArmR", "forearmR", "handR", "head"];
+      pivots = { R: [R + 1, 17.5], L: [Lx + 1, 17.5], legR: back ? 18 : 14, legL: back ? 14 : 18 };
+    } else if (view === "E") {
+      chibiLeg(cv, "L", 13, C, { far: true, toe: 1 });
+      chibiArm(cv, "L", 16, d, { far: true });
+      chibiLeg(cv, "R", 15, C, { toe: 1 });
+      chibiBody(cv, d, 12, 19);
+      chibiArm(cv, "R", 15, d, { edge: 14 });
+      chibiHead(cv, d, CHIBI_SIDE_HEAD, chibiHairMask(d, view), (C2) => {
+        chibiEye(cv, C2, 18);
+        if (d.blush) cv.put("head", 17, 14, mix(C2.skin.base, "#ff6f8a", 0.35));
+      });
+      chibiHairExtra(cv, d, view);
+      order = ["upperArmL", "forearmL", "handL", "thighL", "shinL", "footL", "thighR", "shinR", "footR", "pelvis", "torso", "head", "upperArmR", "forearmR", "handR"];
+      pivots = { R: [16, 17.5], L: [17, 17.5], legR: 17, legL: 15 };
+    } else if (view === "SE") {
+      chibiLeg(cv, "L", 16, C, { far: true, toe: 1 });
+      chibiArm(cv, "L", 20, d, { far: true });
+      chibiLeg(cv, "R", 12, C, { toe: 1 });
+      chibiBody(cv, d, 11, 19, { collar: 16 });
+      chibiArm(cv, "R", 9, d);
+      chibiHead(cv, d, CHIBI_HEAD, chibiHairMask(d, view), front([15, 20], 19, 1));
+      chibiHairExtra(cv, d, view);
+      order = ["upperArmL", "forearmL", "handL", "thighL", "shinL", "footL", "thighR", "shinR", "footR", "pelvis", "torso", "upperArmR", "forearmR", "handR", "head"];
+      pivots = { R: [10, 17.5], L: [21, 17.5], legR: 14, legL: 18 };
+    } else {
+      chibiLeg(cv, "L", 12, C, { far: true, toe: 1 });
+      chibiArm(cv, "L", 10, d, { far: true });
+      chibiLeg(cv, "R", 16, C, { toe: 1 });
+      chibiBody(cv, d, 12, 20);
+      chibiArm(cv, "R", 21, d);
+      chibiHead(cv, d, CHIBI_HEAD, chibiHairMask(d, view), null);
+      chibiHairExtra(cv, d, view);
+      order = ["upperArmL", "forearmL", "handL", "thighL", "shinL", "footL", "thighR", "shinR", "footR", "pelvis", "torso", "upperArmR", "forearmR", "handR", "head"];
+      pivots = { R: [22, 17.5], L: [11, 17.5], legR: 18, legL: 14 };
+    }
+    // joints in sprite pixels (edges between pixels): shoulder, elbow, wrist; hip, knee, ankle; neck, waist
+    const joints = { pelvis: [16, 24], torso: [16, 23], head: [16, 17] };
+    for (const s of ["L", "R"]) {
+      const [ax] = pivots[s];
+      Object.assign(joints, { ["upperArm" + s]: [ax, 17.5], ["forearm" + s]: [ax, 21], ["hand" + s]: [ax, 23] });
+      const lx = pivots["leg" + s];
+      Object.assign(joints, { ["thigh" + s]: [lx, 25], ["shin" + s]: [lx, 27], ["foot" + s]: [lx, 29] });
+    }
+    return { layers: cv.layers, order, joints };
+  }
+  const swapSide = (id) => id.replace(/([LR])$/, (m, s) => s === "L" ? "R" : "L");
+  // one finished view: the drawing for `dir`, mirrored for the left-facing ones
+  function chibiView(d, dir) {
+    const base = CHIBI_BASE[dir], v = chibiDraw(d, base);
+    if (base === dir) return v;
+    const N = CHIBI_N, layers = {}, joints = {};
+    for (const [id, m] of Object.entries(v.layers)) {
+      const out = /* @__PURE__ */ new Map();
+      for (const [i, c] of m) out.set((i / N | 0) * N + (N - 1 - i % N), c);
+      layers[swapSide(id)] = out;
+    }
+    for (const [id, [x, y]] of Object.entries(v.joints)) joints[swapSide(id)] = [N - x, y];
+    return { layers, order: v.order.map(swapSide), joints };
+  }
+  // the view's flat picture: each pixel shows the front-most part drawn there; `hidden` keeps, per part,
+  // its pixels that other parts cover (the rig's hidden areas)
+  function chibiCompose(v) {
+    const N = CHIBI_N, px = new Array(N * N).fill(null), owner = new Array(N * N).fill(null);
+    for (const id of v.order) for (const [i, c] of v.layers[id] || []) {
+      px[i] = c;
+      owner[i] = id;
+    }
+    const hidden = {};
+    for (const id of v.order) {
+      const m = v.layers[id];
+      if (!m) continue;
+      const h = new Array(N * N).fill(null);
+      let n = 0;
+      for (const [i, c] of m) if (owner[i] !== id) {
+        h[i] = c;
+        n++;
+      }
+      if (n) hidden[id] = h;
+    }
+    return { px, owner, hidden };
+  }
   // src/generators/creature.js
   function genCreature(N, rs, rc) {
     const hw = N / 2;
@@ -4574,7 +4804,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     const w2 = weaponReach(rig);
     return w2 ? { reach: { ...w2, prefer: "steady" } } : {};
   }
-  function presetRun(rig, facing = "right", info = null) {
+  function presetRun(rig, facing = "right", info = null, frames = 0) {
     const d = D(facing), I = infoOr(rig, info);
     if (facing === "front") {
       const step2 = (S, O) => pose(
@@ -4600,7 +4830,48 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       // flight: both feet off the ground, legs folding through
       grounded(rig, I, pose(rig, { torso: -8 * F, thighL: -18 * F, shinL: -50 * F, thighR: 26 * F, shinR: -60 * F, upperArmL: 20 * F, upperArmR: -20 * F, forearmL: 70 * F, forearmR: 60 * F }), -2)
     ];
-    return { frames: 6, fps: 12, loop: true, facing, ground: [0, 1, 3, 4], air: { 2: 2, 5: 2 }, ...runReach(rig), keys: [...half2.map((p, i) => ({ t: i, ease: "linear", pose: p })), ...half2.map((p, i) => ({ t: i + 3, ease: "linear", pose: mirrorPose(p) }))] };
+    const cycle = [...half2, ...half2.map(mirrorPose)];
+    if (frames && frames !== 6) {
+      // another frame count (V7): a pose on every frame, evenly spaced around the 6-pose stride, as the walk does
+      const keys2 = Array.from({ length: frames }, (_, i) => {
+        const u = i * 6 / frames, k = Math.floor(u);
+        return { t: i, ease: "linear", pose: lerpPose(cycle[k], cycle[(k + 1) % 6], u - k) };
+      });
+      const flight = (i) => [2, 5].includes(Math.round(i * 6 / frames) % 6), air = {};
+      keys2.forEach((k) => {
+        if (flight(k.t)) air[k.t] = 2;
+      });
+      return { frames, fps: 12, loop: true, facing, ground: keys2.filter((k) => !flight(k.t)).map((k) => k.t), air, ...runReach(rig), keys: keys2 };
+    }
+    return { frames: 6, fps: 12, loop: true, facing, ground: [0, 1, 3, 4], air: { 2: 2, 5: 2 }, ...runReach(rig), keys: cycle.map((p, i) => ({ t: i, ease: "linear", pose: p })) };
+  }
+  // V7: sneak, the walk made slow and low: half-length steps on bent knees, the body leaning in, arms
+  // held up and forward (from the front: lower, smaller steps, forearms raised)
+  function presetSneak(rig, facing = "right", info = null, frames = 0) {
+    const walk = presetWalk(rig, facing, info, frames), I = infoOr(rig, info), d = D(facing), F = -d;
+    const keys = walk.keys.map((k) => {
+      const p = clonePose(k.pose);
+      if (facing === "front") {
+        for (const id of Object.keys(p.off)) if (/^(shin|foot)[LR]$/.test(id)) p.off[id] = p.off[id].map((v) => Math.round(v / 2));
+        for (const id of Object.keys(p.rot)) if (/^(thigh|upperArm)[LR]$/.test(id)) p.rot[id] = r1(p.rot[id] / 2);
+        p.off.torso = [0, ((p.off.torso || [0, 0])[1] > 0 ? 4 : 2)];
+        if (has(rig, "forearmL")) p.rot.forearmL = 25;
+        if (has(rig, "forearmR")) p.rot.forearmR = -25;
+        return { ...k, pose: p };
+      }
+      p.root = [p.root[0], 0];
+      for (const s of ["L", "R"]) {
+        delete p.rot["foot" + s];
+        const half = (id) => (p.rot[id] || 0) / 2;
+        if (has(rig, "thigh" + s)) p.rot["thigh" + s] = r1(half("thigh" + s) + 12 * F);
+        if (has(rig, "shin" + s)) p.rot["shin" + s] = r1(half("shin" + s) - 24 * F);
+        if (has(rig, "upperArm" + s)) p.rot["upperArm" + s] = r1(half("upperArm" + s) + 16 * F);
+        if (has(rig, "forearm" + s)) p.rot["forearm" + s] = r1(45 * F);
+      }
+      if (has(rig, "torso")) p.rot.torso = r1(-6 * F);
+      return { ...k, pose: grounded(rig, I, p) };
+    });
+    return { ...walk, fps: 8, keys };
   }
   function presetJump(rig, facing = "right", info = null) {
     const I = infoOr(rig, info), up = Math.max(1, I.top - 2), d = facing === "front" ? 1 : D(facing), F = -d;
@@ -4916,6 +5187,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     walk: presetWalk,
     attack: presetAttack,
     run: presetRun,
+    sneak: presetSneak,
     jump: presetJump,
     hurt: presetHurt,
     death: presetDeath,
@@ -5133,9 +5405,11 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     ship: { label: "Ship", gen: genShip },
     item: { label: "Item", gen: genItem },
     hero: { label: "RPG Hero", gen: genHero, fixedSize: 28 },
+    // V7: a generated character with parts, joints and 8 directions, kept as an imported character
+    chibi: { label: "Chibi", gen: genImported, sizeFromAsset: true, rigged: true },
     imported: { label: "Imported", gen: genImported, sizeFromAsset: true }
   };
-  var GENERATOR_VERSIONS = { character: 2, creature: 2, ship: 2, item: 2, hero: HERO_GENERATOR_VERSION, imported: IMPORTED_GENERATOR_VERSION };
+  var GENERATOR_VERSIONS = { character: 2, creature: 2, ship: 2, item: 2, hero: HERO_GENERATOR_VERSION, chibi: IMPORTED_GENERATOR_VERSION, imported: IMPORTED_GENERATOR_VERSION };
   function generate(type, N, shapeSeed, colorSeed, opts2 = {}) {
     const T = TYPES[type], n = T.fixedSize || (T.sizeFromAsset && opts2.asset && opts2.asset.rest ? opts2.asset.rest.N : N);
     const s = TYPES[type].gen(n, seedRng(type + ":" + n + ":" + shapeSeed), seedRng("colour:" + colorSeed), { ...opts2, shapeSeed, colorSeed });
@@ -8399,7 +8673,7 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
       app: "Sprite Foundry",
       savedAt,
       settings,
-      generator: { type: sprite3.type, N: sprite3.N, shapeSeed: sprite3.seedShape, colorSeed: sprite3.seedColor, heroVersion: sprite3.type === "hero" ? HERO_GENERATOR_VERSION : null, version: GENERATOR_VERSIONS[sprite3.type] },
+      generator: { type: state2.type === "chibi" && sprite3.type === "imported" ? "chibi" : sprite3.type, N: sprite3.N, shapeSeed: sprite3.seedShape, colorSeed: sprite3.seedColor, heroVersion: sprite3.type === "hero" ? HERO_GENERATOR_VERSION : null, version: GENERATOR_VERSIONS[state2.type === "chibi" && sprite3.type === "imported" ? "chibi" : sprite3.type] },
       colours,
       sprite: { edited: !!edited2, order: sprite3.order.slice(), tags, px, tag, meta: JSON.parse(JSON.stringify(sprite3.meta)) },
       timeline: { order: timeline2.order.slice(), anims },
@@ -8574,7 +8848,7 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
   }
   function restoreProject(project) {
     const st = project.settings, g = project.generator;
-    const opts2 = g.type === "hero" ? { cls: st.heroClass, locks: st.heroLocks, colourCls: st.lockColours ? st.heroColourClass : null } : g.type === "imported" ? { asset: project.asset } : {};
+    const opts2 = g.type === "hero" ? { cls: st.heroClass, locks: st.heroLocks, colourCls: st.lockColours ? st.heroColourClass : null } : TYPES[g.type].sizeFromAsset ? { asset: project.asset } : {};
     const sprite3 = generate(g.type, g.N, g.shapeSeed, g.colorSeed, opts2);
     if (project.base) {
       sprite3.px = project.base.px.slice();
@@ -10744,6 +11018,7 @@ self.onmessage = async e => {
     { id: "idle", preset: "idle", name: "Idle", category: "movement", description: "Standing and breathing: the upper body bobs, the arms sway a little.", requires: () => ["torso"] },
     { id: "walk", preset: "walk", name: "Walk", category: "movement", description: "A walk cycle on the spot: legs in opposite phase, arms swing against them, feet stay on the ground.", requires: () => LEGS },
     { id: "run", preset: "run", name: "Run", category: "movement", description: "Longer strides, bent arms, the body leaning in, both feet off the ground between steps.", requires: () => LEGS },
+    { id: "sneak", preset: "sneak", name: "Sneak", category: "movement", description: "A slow, low walk on the spot: half-length steps on bent knees, leaning in, arms held up and forward.", requires: () => LEGS },
     { id: "jump", preset: "jump", name: "Jump", category: "movement", description: "Crouch, take off, tuck at the top, land. Rises only within the headroom above the head.", requires: () => LEGS },
     { id: "crouch", preset: "crouch", name: "Crouch", category: "movement", description: "Bends the knees and lowers the body, feet planted, arms forward for balance; holds the low pose.", requires: () => LEGS },
     {
@@ -10867,6 +11142,74 @@ self.onmessage = async e => {
     for (let i = 2; ; i++) if (!taken.includes(base + i)) return base + i;
   }
 
+  // src/generators/chibi-asset.js
+  // V7: a generated chibi as an imported character with 8 directions, each one exactly what the app
+  // makes from a 32 px pixel-art PNG converted 1:1 (step 3, exact), with its parts (step 4), joints and
+  // drawing order (step 5) and hidden areas (step 7) filled in from the drawing, and its animations.
+  var CHIBI_MOTIONS = [
+    { id: "idle", fps: 6 },
+    { id: "walk", fps: 10 },
+    { id: "run", fps: 12 },
+    { id: "sneak", fps: 8 }
+  ];
+  var CHIBI_FRAMES = 8;
+  var chibiSettings = (palette) => ({ ...DEFAULTS2, height: CHIBI_N, headroom: 0, floor: 0, resample: "exact", cleanup: false, dither: false, contrast: 0, saturation: 0, locked: palette.slice() });
+  // png(rgba, w, h) -> { bytes, base64 } and workImage(work) -> { dataUrl, size } come from the page
+  function chibiDirection(d, dir, { png, workImage: workImage2 }) {
+    const N = CHIBI_N, v = chibiView(d, dir), { px, owner, hidden } = chibiCompose(v);
+    // every colour drawn, also those only in hidden areas (a project stores those against the palette)
+    const palette = [...new Set([...px, ...Object.values(hidden).flat()].filter(Boolean))];
+    const img = { width: N, height: N, data: new Uint8ClampedArray(N * N * 4) };
+    px.forEach((c, i) => {
+      if (!c) return;
+      const n = parseInt(c.slice(1), 16);
+      img.data.set([n >> 16 & 255, n >> 8 & 255, n & 255, 255], i * 4);
+    });
+    const mask = alphaMask(img), settings = chibiSettings(palette);
+    const r = convertToPixelArt(img, mask, { ...settings, paletteColours: palette, place: { anchor: "bottom", offsetX: 0, offsetY: 0 } });
+    const S = r.work.size, B = S / N, rgba = workToRGBA(r.work);
+    // parts: each work pixel belongs to the part drawn in front at its sprite pixel
+    const parts = DEFAULT_PARTS.map((p) => ({ ...p, missing: !v.layers[p.id] }));
+    const index = Object.fromEntries(parts.map((p, i) => [p.id, i + 1])), map = new Uint8Array(S * S);
+    for (let t = 0; t < S * S; t++) {
+      if (rgba[t * 4 + 3] < 128) continue;
+      const id = owner[((t / S | 0) / B | 0) * N + (t % S / B | 0)];
+      map[t] = id ? index[id] : UNASSIGNED;
+    }
+    const seg2 = { size: S, parts, map, extras: [] };
+    const rig = syncRig(seg2);
+    for (const [id, [x, y]] of Object.entries(v.joints)) if (rig.bones[id]) rig.bones[id] = { ...rig.bones[id], pivot: [x * B, y * B], auto: false };
+    // the drawing order of the view; parts it does not draw (the weapon) stay listed, at the back
+    rig.order = [...rig.order.filter((id) => !v.order.includes(id)), ...v.order.filter((id) => rig.bones[id])];
+    const art = { swaps: {}, holes: hidden };
+    const rest = { N, palette: r.fullPalette.slice(), px: r.px.slice(), work: workImage2(r.work), settings, seg: seg2, rig, art };
+    const L = prepareLayers(seg2, rgba, rig, art, N), anims = {};
+    for (const m of CHIBI_MOTIONS) {
+      const a = JSON.parse(JSON.stringify(buildTemplate(templateById(m.id), rest, L, { facing: FACING_OF[dir], frames: CHIBI_FRAMES, fps: m.fps, loop: true })));
+      // a chibi's big head stays nearly level when the body leans (it reads as falling otherwise)
+      for (const k of a.keys) if (k.pose.rot.torso) k.pose.rot.head = Math.round(((k.pose.rot.head || 0) - k.pose.rot.torso * 0.75) * 10) / 10 || void 0;
+      anims[m.id] = JSON.parse(JSON.stringify(a));
+    }
+    rest.anims = anims;
+    const file = png(img.data, N, N), name = `chibi-${d.shape}-${dir.toLowerCase()}.png`;
+    const source = { name, type: "png", size: file.bytes.length, width: N, height: N, hash: bytesHash(file.bytes), bytes: file.bytes, base64: file.base64, reduced: null };
+    const work = {
+      source,
+      crop: { x: 0, y: 0, w: N, h: N },
+      place: { anchor: "bottom", offsetX: 0, offsetY: 0 },
+      background: { method: "alpha", tolerance: 40, iterations: 5, key: [106, 160, 216], clean: false, used: "alpha", w: N, h: N, raw: mask, hints: new Uint8Array(N * N) },
+      conversion: { ...settings }
+    };
+    return { rest, work, rgba, layers: L, drawn: px };
+  }
+  // the whole character: S is the main image, the other 7 directions are views
+  function chibiAsset(shapeSeed, colourSeed, page) {
+    const d = chibiDesign(shapeSeed, colourSeed), out = {};
+    for (const dir of DIRECTIONS) out[dir] = chibiDirection(d, dir, page);
+    const views = {};
+    for (const dir of DIRECTIONS) if (dir !== "S") views[dir] = { direction: dir, work: out[dir].work, rest: out[dir].rest, history: [] };
+    return { design: d, directions: out, asset: { rest: out.S.rest, history: [], direction: "S", views, work: out.S.work } };
+  }
   // src/ui/anim-panel.js
   var PRESET_LABEL = { idle: "idle", walk: "walk", attack: "sword attack", run: "run", jump: "jump", hurt: "hurt", death: "death" };
   function initAnimPanel({ $: $2, getLayers, onChange, edited: edited2 = () => [], rerender = () => {
@@ -15105,11 +15448,17 @@ self.onmessage = async e => {
   }
 
   // src/ui/auto-animate.js
-  // Auto Animate: one motion on the four screen directions at once (down S, up N, left W, right E).
+  // Auto Animate: one motion on every screen direction at once (down S, up N, left W, right E, and the
+  // diagonals SE, SW, NE, NW since V7).
   // Each direction is built from its own image and rig with the existing template, previewed side by
   // side, and applied, undone or redone as one step. Directions without their own image are not faked.
-  var AUTO_DIRS = [["S", "down"], ["N", "up"], ["W", "left"], ["E", "right"]];
-  var AUTO_MOTIONS = { walk: { template: "walk", label: "Walk", frames: 12, fps: 10 } };
+  var AUTO_DIRS = [["S", "down"], ["N", "up"], ["W", "left"], ["E", "right"], ["SE", "down-right"], ["SW", "down-left"], ["NE", "up-right"], ["NW", "up-left"]];
+  var AUTO_MOTIONS = {
+    walk: { template: "walk", label: "Walk", frames: 12, fps: 10 },
+    run: { template: "run", label: "Run", frames: 8, fps: 12 },
+    sneak: { template: "sneak", label: "Sneak", frames: 8, fps: 8 },
+    idle: { template: "idle", label: "Idle", frames: 8, fps: 6 }
+  };
   function initAutoAnimate({ $: $2, directions: directions2, frameOf, setAnim, F, handEdited = () => false }) {
     const st = { pick: new Set(AUTO_DIRS.map(([d]) => d)), built: null, frame: 0, timer: 0, done: [], undone: [] };
     const msg = (t) => {
@@ -15170,13 +15519,14 @@ self.onmessage = async e => {
       const b = st.built, c = $2("#aaCanvas");
       $2("#aaView").hidden = !b;
       if (!b) return;
-      const size = F(), z = Math.max(1, Math.floor(140 / size)), gap = 8;
-      c.width = b.items.length * (size * z + gap) - gap;
-      c.height = size * z;
+      // up to four directions per row
+      const size = F(), z = Math.max(1, Math.floor(140 / size)), gap = 8, cols = Math.min(4, b.items.length), cell = size * z + gap;
+      c.width = cols * cell - gap;
+      c.height = Math.ceil(b.items.length / cols) * cell - gap;
       const ctx = c.getContext("2d");
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, c.width, c.height);
-      b.items.forEach((it, i) => ctx.drawImage(toCanvas(it.px[st.frame % it.px.length], size), i * (size * z + gap), 0, size * z, size * z));
+      b.items.forEach((it, i) => ctx.drawImage(toCanvas(it.px[st.frame % it.px.length], size), i % cols * cell, (i / cols | 0) * cell, size * z, size * z));
       $2("#aaFrameLabel").textContent = `frame ${st.frame % b.frames + 1} / ${b.frames}`;
     }
     function stop() {
@@ -15351,10 +15701,10 @@ self.onmessage = async e => {
         {
           title: "Choose what to make",
           go: "#typeSeg",
-          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
-          do: "Under Sprite type, click Character, Creature, Ship, Item or RPG Hero. Under Sprite size, click a size such as 12 px or 32 px.",
+          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("Chibi", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
+          do: "Under Sprite type, click Character, Creature, Ship, Item, RPG Hero or Chibi. Under Sprite size, click a size such as 12 px or 32 px.",
           expect: "The preview in the middle shows a new sprite of that type, and the Variations row at the bottom fills with others like it.",
-          watch: 'RPG Hero always uses a 28 px sprite, so the size buttons are switched off for it. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
+          watch: 'RPG Hero always uses a 28 px sprite and Chibi a 32 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak; 8 frames each); its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
           undo: "Click the type or size you had before. If the app asked you, Cancel keeps everything as it was."
         },
         {
@@ -15494,12 +15844,12 @@ self.onmessage = async e => {
           undo: "Test poses are previews only and are never saved. Reset pose returns to the exact rest pose."
         },
         {
-          title: "6 \xB7 Auto Animate: walk in four directions",
+          title: "6 \xB7 Auto Animate: one motion in every direction",
           go: "#aaPanel",
           appears: "with parts and joints",
           controls: [C("Preview", "#aaPreview"), C("Apply", "#aaApply"), C("Undo", "#aaUndo"), C("frames per direction", "#aaFrames"), C("speed", "#aaFps")],
-          do: "Give each direction you want its own image (Image to pixel art, Direction: down S, up N, left W, right E) with parts and joints. In Auto Animate, tick the directions, keep 12 frames at 10 fps or change them, click Preview to watch every direction side by side, then Apply.",
-          expect: "One walk row per direction (walk, walk_n, walk_w, walk_e; or walk_down\u2026 in exports with screen direction names), each an ordinary animation you can edit in Manual or frame by frame.",
+          do: "Give each direction you want its own image (Image to pixel art, Direction: down S, up N, left W, right E, or the diagonals) with parts and joints; a Chibi has all 8 already. In Auto Animate, choose the motion (Walk, Run, Sneak or Idle), tick the directions, keep the frames and speed or change them, click Preview to watch every direction side by side, then Apply.",
+          expect: "One row per direction (walk, walk_n, walk_w, walk_e, walk_se\u2026; or walk_down, walk_down_right\u2026 in exports with screen direction names), each an ordinary animation you can edit in Manual or frame by frame.",
           watch: "A direction without its own image is listed and skipped: the app does not invent a back or side view. The frame check catches gaps, ground and jumps, not whether the walk looks natural: watch for sliding feet and crossing limbs.",
           undo: "Undo in Auto Animate removes the walk from every direction at once; it asks first if you edited it since. An existing walk is only replaced after you confirm."
         },
@@ -15619,7 +15969,8 @@ self.onmessage = async e => {
       go: "#typeSeg",
       summary: "Makes a sprite from seeds. The left column of the Sprite Foundry page.",
       items: [
-        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, or Imported (your own image, made in Image to pixel art)." },
+        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, Chibi, or Imported (your own image, made in Image to pixel art)." },
+        { ...C("Chibi", "#typeSeg"), text: "A 32 px character drawn as body parts with joints in all 8 directions (down, up, left, right and the diagonals), with idle, walk, run and sneak in every direction, 8 frames each. The seeds and variations draw a new one (hair, outfit, colours); it asks first if you changed its parts, joints or animations. The left-facing directions mirror the right-facing ones." },
         { ...C("Sprite size", "#sizeSeg"), text: "12, 16, 24 or 32 px. RPG Hero is always 28 px; Imported uses the size chosen in step 3. Each frame has 2 px of room around the sprite." },
         { ...C("Outline", "#outlineSeg"), text: "Tinted, Black or None. Drawn around the figure in every frame." }
       ]
@@ -15771,7 +16122,7 @@ self.onmessage = async e => {
         { ...C("Aseprite .aseprite", "#aseBtn"), text: "Every animation as a tag, for Aseprite." },
         { ...C("Full pack .zip", "#zipBtn"), text: "Sheet, JSON, GIFs and single frames in one zip." },
         { ...C("Export preset", "#exportPreset"), text: "Phaser, Full pack, Individual PNG frames, Animated GIF previews, Godot 4, Unity, or a trimmed packed atlas. Export .zip writes it with manifest.json." },
-        { ...C("direction names", "#dirNames"), text: "For an animation drawn in several directions: compass names (walk, walk_n, walk_w, walk_e) or screen names (walk_down, walk_up, walk_left, walk_right) in every export." }
+        { ...C("direction names", "#dirNames"), text: "For an animation drawn in several directions: compass names (walk, walk_n, walk_w, walk_e, walk_se\u2026) or screen names (walk_down, walk_up, walk_left, walk_right, walk_down_right\u2026) in every export." }
       ],
       more: "The Godot files, including the cutout scene, are loaded and played in Godot 4.3 by the project's tests, and the Phaser export in Phaser 3.90; the Unity files are checked against their format but have not been opened in Unity."
     },
@@ -15904,10 +16255,11 @@ self.onmessage = async e => {
       title: "6 \xB7 Auto Animate",
       go: "#aaPanel",
       appears: "with parts and joints",
-      summary: "One motion (walk) on down, up, left and right at once, each from its direction's own image.",
+      summary: "One motion (walk, run, sneak or idle) on every direction at once, each from its direction's own image.",
       items: [
-        { ...C("Auto Animate", "#aaPanel"), text: "At the top of step 6. Lists down (S), up (N), left (W), right (E) and says which need an image or parts and joints." },
-        { ...C("frames per direction", "#aaFrames"), text: "12 frames at 10 fps by default: 48 frames, 1.2 s per loop. The name is walk unless you change it." },
+        { ...C("Auto Animate", "#aaPanel"), text: "At the top of step 6. Lists down (S), up (N), left (W), right (E) and the diagonals, and says which need an image or parts and joints." },
+        { ...C("motion", "#aaMotion"), text: "Walk (12 frames, 10 fps), Run (8 frames, 12 fps), Sneak (8 frames, 8 fps: a slow, low walk) or Idle (8 frames, 6 fps)." },
+        { ...C("frames per direction", "#aaFrames"), text: "Set by the motion (walk: 12 frames at 10 fps, 1.2 s per loop). The name is the motion's unless you change it." },
         { ...C("Preview", "#aaPreview"), text: "Every chosen direction side by side, with its frame-check warnings; Play runs them in step. Nothing is added yet." },
         { ...C("Apply", "#aaApply"), text: "Adds the animation to every chosen direction; asks before replacing one of the same name." },
         { ...C("Undo", "#aaUndo"), text: "Undo and Redo act on every direction at once." }
@@ -16083,6 +16435,7 @@ self.onmessage = async e => {
   ];
   var LIMITS = [
     "The 2.5D Workshop draws a flat sprite that looks isometric; it is not a 3D model. Every direction and frame is drawn by you.",
+    "Chibi draws its own body parts in 8 directions from one design, so its back and side views are real drawings, not guesses; they are made by rules, so they look generated rather than hand-drawn. The left-facing views mirror the right-facing ones.",
     "Image rigging moves and turns the parts you assign. One image cannot show the back, the sides, or details it does not contain: add an image per direction, or paint hidden areas yourself.",
     "Background removal, Rough guess, Suggest joints, Fill automatically, the rig preflight and the frame check are helpers. They give a starting point and catch common problems; check their results.",
     'Nothing in Help changes your sprite: tutorials are instructions only, and "Show me" only scrolls to the control.'
@@ -16483,7 +16836,7 @@ self.onmessage = async e => {
     return c && c.rest ? c.rest : null;
   };
   var opts = () => ({ outline: state.outline, pal: state.palette });
-  var genOpts = () => state.type === "hero" ? { cls: state.heroClass, locks: state.heroLocks, colourCls: state.lockColours ? state.heroColourClass : null } : state.type === "imported" ? { asset: importedAsset, rigLayers: layersFor(null) } : {};
+  var genOpts = () => state.type === "hero" ? { cls: state.heroClass, locks: state.heroLocks, colourCls: state.lockColours ? state.heroColourClass : null } : TYPES[state.type].sizeFromAsset ? { asset: importedAsset, rigLayers: layersFor(null) } : {};
   var thumbColour = (seed) => state.type === "hero" && state.lockColours ? state.color : seed;
   var frameSize = () => sprite2.N + 2 * PAD;
   var randSeed = () => Math.random().toString(36).slice(2, 7);
@@ -16567,7 +16920,7 @@ self.onmessage = async e => {
   }
   function syncControls() {
     $("#dirNames").value = state.dirNames;
-    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => guardDiscard("Changing the sprite type", () => {
+    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => v === "chibi" ? state.type !== "chibi" && guardChibi("Making a chibi", makeChibi) : guardDiscard("Changing the sprite type", () => {
       state.type = v;
       regenerate();
       buildThumbs();
@@ -16584,8 +16937,8 @@ self.onmessage = async e => {
     }
     const fromAsset = TYPES[state.type].sizeFromAsset, fixed = TYPES[state.type].fixedSize || (fromAsset && sprite2 ? sprite2.N : 0);
     for (const b of $("#sizeSeg").children) b.disabled = !!fixed;
-    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset;
-    $("#sizeHint").textContent = fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
+    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset && state.type !== "chibi";
+    $("#sizeHint").textContent = state.type === "chibi" ? `A chibi is a ${CHIBI_N} px character in a ${CHIBI_N + 2 * PAD}\xD7${CHIBI_N + 2 * PAD} frame, drawn in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137). The seeds change the design.` : fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
     seg($("#outlineSeg"), [["tinted", "Tinted"], ["black", "Black"], ["none", "None"]], state.outline, (v) => {
       state.outline = v;
       saveState();
@@ -17545,6 +17898,7 @@ self.onmessage = async e => {
   });
   function buildThumbs() {
     const el2 = $("#thumbs");
+    if (state.type === "chibi") return buildChibiThumbs(el2);
     if (TYPES[state.type].sizeFromAsset) {
       thumbs = [];
       const p = document.createElement("p");
@@ -17580,6 +17934,12 @@ self.onmessage = async e => {
   }
   function refreshThumbs() {
     for (const t of thumbs) {
+      if (t.chibi) {
+        t.frames = chibiThumbFrames(t.seed);
+        t.c.getContext("2d").clearRect(0, 0, t.c.width, t.c.height);
+        t.c.getContext("2d").drawImage(t.frames[0], 0, 0);
+        continue;
+      }
       const F = t.s.N + 2 * PAD, first = Object.keys(t.s.anims)[0];
       t.frames = t.s.anims[first].map((spec) => toCanvas(renderFrame(t.s, spec, opts()), F));
       const ctx = t.c.getContext("2d");
@@ -18079,11 +18439,84 @@ self.onmessage = async e => {
     $("#dirMain").replaceChildren(...DIRECTIONS.filter((d) => d === main || !viewOf(d)).map((d) => new Option(`${d} \xB7 ${DIRECTION_LABEL[d]}`, d)));
     $("#dirMain").value = main;
     $("#dirRemove").hidden = !curView();
-    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one.`;
+    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). ${state.type === "chibi" ? "The chibi generator drew every direction from one design; the left-facing ones are the right-facing ones mirrored, which suits its symmetric design." : "Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one."}`;
   }
   $("#dirAddBtn").addEventListener("click", () => addDirection($("#dirAdd").value));
   $("#dirRemove").addEventListener("click", () => removeDirection(curView()));
   $("#dirMain").addEventListener("change", (e) => setMainDirection(e.target.value));
+  // V7: the Chibi type. A generated character kept as an imported one with 8 directions (see
+  // chibi-asset.js); changing its seeds draws it again. chibiChanged: its parts, joints, drawings or
+  // animations were edited since it was made, so drawing it again asks first.
+  var chibiChanged = false;
+  function pngOf(rgba, w2, h) {
+    const c = document.createElement("canvas");
+    c.width = w2;
+    c.height = h;
+    c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), w2, h), 0, 0);
+    const base64 = c.toDataURL("image/png").split(",")[1], bin = atob(base64), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, base64 };
+  }
+  function makeChibi() {
+    const built = chibiAsset(state.shape, state.color, { png: pngOf, workImage });
+    for (const r of Object.values(built.directions)) workRGBA.set(r.rest.work.dataUrl, r.rgba);
+    importedAsset = built.asset;
+    activeDir = null;
+    state.type = "chibi";
+    regenerate();
+    buildThumbs();
+    markProjectDirty();
+    renderVersions();
+    partsPanel.setRest(importedAsset.rest);
+    restoreWork(importedAsset.work);
+    renderDirBar();
+    if (templatePanel) templatePanel.refresh(curRest());
+    chibiChanged = false;
+    toast(`Chibi "${built.design.shape}": ${built.design.hair} hair, ${built.design.outfit} outfit \xB7 8 directions \xB7 ${CHIBI_MOTIONS.map((m) => m.id).join(", ")}`);
+  }
+  var reseed = () => state.type === "chibi" ? makeChibi() : regenerate(true);
+  function guardChibi(label, action) {
+    if (hasImported() && state.type !== "chibi" && label === "Making a chibi") {
+      askGuard(`${label} replaces your imported character (its image, parts, joints and animations). Save the project first to keep it.`, action);
+      return;
+    }
+    if (state.type === "chibi" && chibiChanged) {
+      askGuard(`${label} draws the chibi again and loses your changes to its parts, joints, drawings and animations.`, action);
+      return;
+    }
+    guardDiscard(label, action);
+  }
+  // the 8 directions of a design, turning around, for the variations row
+  function chibiThumbFrames(seed) {
+    const d = chibiDesign(seed, seed);
+    return CIRCLE.map((dir) => {
+      const { px } = chibiCompose(chibiView(d, dir)), s = makeSprite("chibi", CHIBI_N), cols = px.filter(Boolean).sort((a, b) => lum(a) - lum(b));
+      s.px = px;
+      s.tag = px.map((c) => c ? "body" : null);
+      s.meta.outline = mix(cols[0] || "#000000", "#000000", 0.5);
+      return toCanvas(renderFrame(s, {}, opts()), CHIBI_N + 2 * PAD);
+    });
+  }
+  function buildChibiThumbs(el2) {
+    thumbs = Array.from({ length: 12 }, (_, i) => {
+      const seed = state.batch + "-" + (i + 1), b = document.createElement("button"), c = document.createElement("canvas"), label = document.createElement("span");
+      b.type = "button";
+      b.className = "thumb";
+      c.width = c.height = CHIBI_N + 2 * PAD;
+      label.textContent = seed;
+      b.append(c, label);
+      b.setAttribute("aria-label", `Load variation ${seed}`);
+      b.addEventListener("click", () => guardChibi("Loading a variation", () => {
+        state.shape = seed;
+        state.color = seed;
+        makeChibi();
+      }));
+      return { seed, chibi: true, b, c, frames: null };
+    });
+    el2.replaceChildren(...thumbs.map((t) => t.b));
+    refreshThumbs();
+    markThumbs();
+  }
   function workImage(work) {
     const c = document.createElement("canvas");
     c.width = c.height = work.size;
@@ -18092,6 +18525,7 @@ self.onmessage = async e => {
   }
   var versionInUse = (rest) => (cur() && cur().history || []).find((h) => h.work && rest.work && h.work.dataUrl === rest.work.dataUrl && h.px.join() === rest.px.join());
   function partsChanged(seg2) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.seg = seg2;
@@ -18112,6 +18546,7 @@ self.onmessage = async e => {
     markProjectDirty();
   }
   function rigChanged(rig) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.rig = rig;
@@ -18131,6 +18566,7 @@ self.onmessage = async e => {
     attachRig();
   }
   function artChanged(art) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.art = art;
@@ -18152,7 +18588,8 @@ self.onmessage = async e => {
     const rest = view ? viewOf(view) && viewOf(view).rest : hasImported() ? importedAsset.rest : null;
     if (!rest || !rest.seg || !rest.rig) return null;
     const shown = (view || null) === curView(), d = shown ? partsPanel.data() : null;
-    const rgba = shown ? d && d.rgba : rest.work ? workRGBA.get(rest.work.dataUrl) : null;
+    // a generated chibi's pixels are known before the shown direction's image is decoded
+    const rgba = shown ? d && d.rgba || (rest.work ? workRGBA.get(rest.work.dataUrl) : null) : rest.work ? workRGBA.get(rest.work.dataUrl) : null;
     if (!rgba) {
       if (!shown) decodeWork(rest.work);
       return null;
@@ -18213,6 +18650,7 @@ self.onmessage = async e => {
     }
   }
   function animsChanged(anims, names) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.anims = anims;
@@ -18643,25 +19081,29 @@ self.onmessage = async e => {
   });
   $("#shapeSeed").addEventListener("change", (e) => {
     const v = e.target.value.trim() || randSeed();
-    guardDiscard("Changing the shape seed", () => {
+    // leaving the box after the seed was applied fires change again: nothing to do then
+    if (v === state.shape) return;
+    guardChibi("Changing the shape seed", () => {
       state.shape = v;
-      regenerate(true);
+      reseed();
     });
   });
   $("#colorSeed").addEventListener("change", (e) => {
     const v = e.target.value.trim() || randSeed();
-    guardDiscard("Changing the colour seed", () => {
+    // leaving the box after the seed was applied fires change again: nothing to do then
+    if (v === state.color) return;
+    guardChibi("Changing the colour seed", () => {
       state.color = v;
-      regenerate(true);
+      reseed();
     });
   });
-  $("#reshapeBtn").addEventListener("click", () => guardDiscard("A new shape", () => {
+  $("#reshapeBtn").addEventListener("click", () => guardChibi("A new shape", () => {
     state.shape = randSeed();
-    regenerate(true);
+    reseed();
   }));
-  $("#recolorBtn").addEventListener("click", () => guardDiscard("New colours", () => {
+  $("#recolorBtn").addEventListener("click", () => guardChibi("New colours", () => {
     state.color = randSeed();
-    regenerate(true);
+    reseed();
   }));
   $("#batchBtn").addEventListener("click", () => {
     state.batch = randSeed();
@@ -19172,7 +19614,7 @@ self.onmessage = async e => {
       sheetDirty = true;
     },
     get thumbs() {
-      return thumbs.map((t) => ({ seed: t.seed, type: t.s.type, cls: t.s.meta.hero ? t.s.meta.hero.cls : null, parts: t.s.meta.hero ? t.s.meta.hero.parts : null }));
+      return thumbs.map((t) => t.chibi ? { seed: t.seed, type: "chibi", cls: null, parts: null } : { seed: t.seed, type: t.s.type, cls: t.s.meta.hero ? t.s.meta.hero.cls : null, parts: t.s.meta.hero ? t.s.meta.hero.parts : null });
     }
   };
   (() => {

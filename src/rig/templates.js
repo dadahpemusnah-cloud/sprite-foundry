@@ -15,6 +15,7 @@
     { id: "idle", preset: "idle", name: "Idle", category: "movement", description: "Standing and breathing: the upper body bobs, the arms sway a little.", requires: () => ["torso"] },
     { id: "walk", preset: "walk", name: "Walk", category: "movement", description: "A walk cycle on the spot: legs in opposite phase, arms swing against them, feet stay on the ground.", requires: () => LEGS },
     { id: "run", preset: "run", name: "Run", category: "movement", description: "Longer strides, bent arms, the body leaning in, both feet off the ground between steps.", requires: () => LEGS },
+    { id: "sneak", preset: "sneak", name: "Sneak", category: "movement", description: "A slow, low walk on the spot: half-length steps on bent knees, leaning in, arms held up and forward.", requires: () => LEGS },
     { id: "jump", preset: "jump", name: "Jump", category: "movement", description: "Crouch, take off, tuck at the top, land. Rises only within the headroom above the head.", requires: () => LEGS },
     { id: "crouch", preset: "crouch", name: "Crouch", category: "movement", description: "Bends the knees and lowers the body, feet planted, arms forward for balance; holds the low pose.", requires: () => LEGS },
     {

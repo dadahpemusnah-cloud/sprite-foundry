@@ -18,7 +18,8 @@ let { browser, page, errors } = await openPage();
 watchDialogs(page);
 await rigFourDirections(page);
 let s = await info(page);
-ok(s.status.every((x) => x.ok), 'not every direction ready: ' + JSON.stringify(s.status));
+// the four with artwork are ready; the diagonals (listed since V7) say they need their own image
+ok(s.status.filter((x) => x.dir.length === 1).every((x) => x.ok) && s.status.filter((x) => x.dir.length === 2).every((x) => !x.ok && /own image/.test(x.why)) && s.status.length === 8, 'direction status: ' + JSON.stringify(s.status));
 ok(JSON.stringify(s.settings) === JSON.stringify({ frames: 12, fps: 10, name: 'walk' }), 'defaults are not 12 frames / 10 fps / walk: ' + JSON.stringify(s.settings));
 ok(/4 directions × 12 frames = 48 frames · 1200 ms per loop/.test(await page.textContent('#aaTiming')), 'timing line wrong: ' + await page.textContent('#aaTiming'));
 
@@ -90,7 +91,7 @@ ok(st.S.ok && st.E.ok && !st.N.ok && !st.W.ok && /own image/.test(st.N.why), 'mi
 await page.click('#aaApply');
 r = await rows(page);
 ok(Object.keys(r).sort().join() === 'walk,walk_e', 'with two images, rows are ' + Object.keys(r));
-ok(/Not made for up, left/.test(await page.textContent('#aaMsg')), 'apply message does not name the skipped directions');
+ok(/Not made for up, left, down-right, down-left, up-right, up-left/.test(await page.textContent('#aaMsg')), 'apply message does not name the skipped directions');
 const errs2 = errors.slice();
 await browser.close();
 

@@ -826,9 +826,9 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
         <p class="hint">Checks the parts, joints and rest pose before you animate. "Needs attention" items do not stop you; each button opens the step that fixes it.</p>
       </div>
       <details class="group auto-anim" id="aaPanel" open>
-        <summary class="label">Auto Animate · four directions</summary>
+        <summary class="label">Auto Animate · every direction</summary>
         <div class="row">
-          <label class="field" for="aaMotion">motion <select id="aaMotion"><option value="walk">Walk</option></select></label>
+          <label class="field" for="aaMotion">motion <select id="aaMotion"><option value="walk">Walk</option><option value="run">Run</option><option value="sneak">Sneak</option><option value="idle">Idle</option></select></label>
           <span class="hint">Procedural: the rig's walk, made for each direction from that direction's own image.</span>
         </div>
         <ul class="tm-dirs" id="aaDirs" aria-label="Directions to animate"></ul>
@@ -846,7 +846,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
           <button id="aaRedo" type="button" disabled>Redo</button>
           <span class="hint mono" id="aaFrameLabel"></span>
         </div>
-        <div class="import-view bg-checker aa-view" id="aaView" hidden><canvas id="aaCanvas" width="1" height="1" aria-label="Preview of every chosen direction, in the order down, up, left, right"></canvas></div>
+        <div class="import-view bg-checker aa-view" id="aaView" hidden><canvas id="aaCanvas" width="1" height="1" aria-label="Preview of every chosen direction, in the order down, up, left, right, then the diagonals, four to a row"></canvas></div>
         <ul class="hint an-warn" id="aaWarn"></ul>
         <p class="hint" id="aaMsg" role="status"></p>
         <p class="hint">Each direction needs its own image with parts and joints: the app does not invent a back or side view. Applying adds an ordinary animation per direction that you can edit in Manual or frame by frame; an existing animation of the same name is only replaced after you confirm. The frame check catches gaps, ground and jumps, not whether the walk looks natural: watch the preview for sliding feet and crossing limbs.</p>

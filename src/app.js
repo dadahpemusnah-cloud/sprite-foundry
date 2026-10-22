@@ -66,7 +66,7 @@
     return c && c.rest ? c.rest : null;
   };
   var opts = () => ({ outline: state.outline, pal: state.palette });
-  var genOpts = () => state.type === "hero" ? { cls: state.heroClass, locks: state.heroLocks, colourCls: state.lockColours ? state.heroColourClass : null } : state.type === "imported" ? { asset: importedAsset, rigLayers: layersFor(null) } : {};
+  var genOpts = () => state.type === "hero" ? { cls: state.heroClass, locks: state.heroLocks, colourCls: state.lockColours ? state.heroColourClass : null } : TYPES[state.type].sizeFromAsset ? { asset: importedAsset, rigLayers: layersFor(null) } : {};
   var thumbColour = (seed) => state.type === "hero" && state.lockColours ? state.color : seed;
   var frameSize = () => sprite2.N + 2 * PAD;
   var randSeed = () => Math.random().toString(36).slice(2, 7);
@@ -150,7 +150,7 @@
   }
   function syncControls() {
     $("#dirNames").value = state.dirNames;
-    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => guardDiscard("Changing the sprite type", () => {
+    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => v === "chibi" ? state.type !== "chibi" && guardChibi("Making a chibi", makeChibi) : guardDiscard("Changing the sprite type", () => {
       state.type = v;
       regenerate();
       buildThumbs();
@@ -167,8 +167,8 @@
     }
     const fromAsset = TYPES[state.type].sizeFromAsset, fixed = TYPES[state.type].fixedSize || (fromAsset && sprite2 ? sprite2.N : 0);
     for (const b of $("#sizeSeg").children) b.disabled = !!fixed;
-    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset;
-    $("#sizeHint").textContent = fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
+    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset && state.type !== "chibi";
+    $("#sizeHint").textContent = state.type === "chibi" ? `A chibi is a ${CHIBI_N} px character in a ${CHIBI_N + 2 * PAD}\xD7${CHIBI_N + 2 * PAD} frame, drawn in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137). The seeds change the design.` : fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
     seg($("#outlineSeg"), [["tinted", "Tinted"], ["black", "Black"], ["none", "None"]], state.outline, (v) => {
       state.outline = v;
       saveState();
@@ -1128,6 +1128,7 @@
   });
   function buildThumbs() {
     const el2 = $("#thumbs");
+    if (state.type === "chibi") return buildChibiThumbs(el2);
     if (TYPES[state.type].sizeFromAsset) {
       thumbs = [];
       const p = document.createElement("p");
@@ -1163,6 +1164,12 @@
   }
   function refreshThumbs() {
     for (const t of thumbs) {
+      if (t.chibi) {
+        t.frames = chibiThumbFrames(t.seed);
+        t.c.getContext("2d").clearRect(0, 0, t.c.width, t.c.height);
+        t.c.getContext("2d").drawImage(t.frames[0], 0, 0);
+        continue;
+      }
       const F = t.s.N + 2 * PAD, first = Object.keys(t.s.anims)[0];
       t.frames = t.s.anims[first].map((spec) => toCanvas(renderFrame(t.s, spec, opts()), F));
       const ctx = t.c.getContext("2d");
@@ -1662,11 +1669,84 @@
     $("#dirMain").replaceChildren(...DIRECTIONS.filter((d) => d === main || !viewOf(d)).map((d) => new Option(`${d} \xB7 ${DIRECTION_LABEL[d]}`, d)));
     $("#dirMain").value = main;
     $("#dirRemove").hidden = !curView();
-    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one.`;
+    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). ${state.type === "chibi" ? "The chibi generator drew every direction from one design; the left-facing ones are the right-facing ones mirrored, which suits its symmetric design." : "Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one."}`;
   }
   $("#dirAddBtn").addEventListener("click", () => addDirection($("#dirAdd").value));
   $("#dirRemove").addEventListener("click", () => removeDirection(curView()));
   $("#dirMain").addEventListener("change", (e) => setMainDirection(e.target.value));
+  // V7: the Chibi type. A generated character kept as an imported one with 8 directions (see
+  // chibi-asset.js); changing its seeds draws it again. chibiChanged: its parts, joints, drawings or
+  // animations were edited since it was made, so drawing it again asks first.
+  var chibiChanged = false;
+  function pngOf(rgba, w2, h) {
+    const c = document.createElement("canvas");
+    c.width = w2;
+    c.height = h;
+    c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), w2, h), 0, 0);
+    const base64 = c.toDataURL("image/png").split(",")[1], bin = atob(base64), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, base64 };
+  }
+  function makeChibi() {
+    const built = chibiAsset(state.shape, state.color, { png: pngOf, workImage });
+    for (const r of Object.values(built.directions)) workRGBA.set(r.rest.work.dataUrl, r.rgba);
+    importedAsset = built.asset;
+    activeDir = null;
+    state.type = "chibi";
+    regenerate();
+    buildThumbs();
+    markProjectDirty();
+    renderVersions();
+    partsPanel.setRest(importedAsset.rest);
+    restoreWork(importedAsset.work);
+    renderDirBar();
+    if (templatePanel) templatePanel.refresh(curRest());
+    chibiChanged = false;
+    toast(`Chibi "${built.design.shape}": ${built.design.hair} hair, ${built.design.outfit} outfit \xB7 8 directions \xB7 ${CHIBI_MOTIONS.map((m) => m.id).join(", ")}`);
+  }
+  var reseed = () => state.type === "chibi" ? makeChibi() : regenerate(true);
+  function guardChibi(label, action) {
+    if (hasImported() && state.type !== "chibi" && label === "Making a chibi") {
+      askGuard(`${label} replaces your imported character (its image, parts, joints and animations). Save the project first to keep it.`, action);
+      return;
+    }
+    if (state.type === "chibi" && chibiChanged) {
+      askGuard(`${label} draws the chibi again and loses your changes to its parts, joints, drawings and animations.`, action);
+      return;
+    }
+    guardDiscard(label, action);
+  }
+  // the 8 directions of a design, turning around, for the variations row
+  function chibiThumbFrames(seed) {
+    const d = chibiDesign(seed, seed);
+    return CIRCLE.map((dir) => {
+      const { px } = chibiCompose(chibiView(d, dir)), s = makeSprite("chibi", CHIBI_N), cols = px.filter(Boolean).sort((a, b) => lum(a) - lum(b));
+      s.px = px;
+      s.tag = px.map((c) => c ? "body" : null);
+      s.meta.outline = mix(cols[0] || "#000000", "#000000", 0.5);
+      return toCanvas(renderFrame(s, {}, opts()), CHIBI_N + 2 * PAD);
+    });
+  }
+  function buildChibiThumbs(el2) {
+    thumbs = Array.from({ length: 12 }, (_, i) => {
+      const seed = state.batch + "-" + (i + 1), b = document.createElement("button"), c = document.createElement("canvas"), label = document.createElement("span");
+      b.type = "button";
+      b.className = "thumb";
+      c.width = c.height = CHIBI_N + 2 * PAD;
+      label.textContent = seed;
+      b.append(c, label);
+      b.setAttribute("aria-label", `Load variation ${seed}`);
+      b.addEventListener("click", () => guardChibi("Loading a variation", () => {
+        state.shape = seed;
+        state.color = seed;
+        makeChibi();
+      }));
+      return { seed, chibi: true, b, c, frames: null };
+    });
+    el2.replaceChildren(...thumbs.map((t) => t.b));
+    refreshThumbs();
+    markThumbs();
+  }
   function workImage(work) {
     const c = document.createElement("canvas");
     c.width = c.height = work.size;
@@ -1675,6 +1755,7 @@
   }
   var versionInUse = (rest) => (cur() && cur().history || []).find((h) => h.work && rest.work && h.work.dataUrl === rest.work.dataUrl && h.px.join() === rest.px.join());
   function partsChanged(seg2) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.seg = seg2;
@@ -1695,6 +1776,7 @@
     markProjectDirty();
   }
   function rigChanged(rig) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.rig = rig;
@@ -1714,6 +1796,7 @@
     attachRig();
   }
   function artChanged(art) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.art = art;
@@ -1735,7 +1818,8 @@
     const rest = view ? viewOf(view) && viewOf(view).rest : hasImported() ? importedAsset.rest : null;
     if (!rest || !rest.seg || !rest.rig) return null;
     const shown = (view || null) === curView(), d = shown ? partsPanel.data() : null;
-    const rgba = shown ? d && d.rgba : rest.work ? workRGBA.get(rest.work.dataUrl) : null;
+    // a generated chibi's pixels are known before the shown direction's image is decoded
+    const rgba = shown ? d && d.rgba || (rest.work ? workRGBA.get(rest.work.dataUrl) : null) : rest.work ? workRGBA.get(rest.work.dataUrl) : null;
     if (!rgba) {
       if (!shown) decodeWork(rest.work);
       return null;
@@ -1796,6 +1880,7 @@
     }
   }
   function animsChanged(anims, names) {
+    if (state.type === "chibi") chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.anims = anims;
@@ -2226,25 +2311,29 @@
   });
   $("#shapeSeed").addEventListener("change", (e) => {
     const v = e.target.value.trim() || randSeed();
-    guardDiscard("Changing the shape seed", () => {
+    // leaving the box after the seed was applied fires change again: nothing to do then
+    if (v === state.shape) return;
+    guardChibi("Changing the shape seed", () => {
       state.shape = v;
-      regenerate(true);
+      reseed();
     });
   });
   $("#colorSeed").addEventListener("change", (e) => {
     const v = e.target.value.trim() || randSeed();
-    guardDiscard("Changing the colour seed", () => {
+    // leaving the box after the seed was applied fires change again: nothing to do then
+    if (v === state.color) return;
+    guardChibi("Changing the colour seed", () => {
       state.color = v;
-      regenerate(true);
+      reseed();
     });
   });
-  $("#reshapeBtn").addEventListener("click", () => guardDiscard("A new shape", () => {
+  $("#reshapeBtn").addEventListener("click", () => guardChibi("A new shape", () => {
     state.shape = randSeed();
-    regenerate(true);
+    reseed();
   }));
-  $("#recolorBtn").addEventListener("click", () => guardDiscard("New colours", () => {
+  $("#recolorBtn").addEventListener("click", () => guardChibi("New colours", () => {
     state.color = randSeed();
-    regenerate(true);
+    reseed();
   }));
   $("#batchBtn").addEventListener("click", () => {
     state.batch = randSeed();
@@ -2755,7 +2844,7 @@
       sheetDirty = true;
     },
     get thumbs() {
-      return thumbs.map((t) => ({ seed: t.seed, type: t.s.type, cls: t.s.meta.hero ? t.s.meta.hero.cls : null, parts: t.s.meta.hero ? t.s.meta.hero.parts : null }));
+      return thumbs.map((t) => t.chibi ? { seed: t.seed, type: "chibi", cls: null, parts: null } : { seed: t.seed, type: t.s.type, cls: t.s.meta.hero ? t.s.meta.hero.cls : null, parts: t.s.meta.hero ? t.s.meta.hero.parts : null });
     }
   };
   (() => {

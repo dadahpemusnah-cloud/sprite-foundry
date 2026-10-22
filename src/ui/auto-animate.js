@@ -1,9 +1,15 @@
   // src/ui/auto-animate.js
-  // Auto Animate: one motion on the four screen directions at once (down S, up N, left W, right E).
+  // Auto Animate: one motion on every screen direction at once (down S, up N, left W, right E, and the
+  // diagonals SE, SW, NE, NW since V7).
   // Each direction is built from its own image and rig with the existing template, previewed side by
   // side, and applied, undone or redone as one step. Directions without their own image are not faked.
-  var AUTO_DIRS = [["S", "down"], ["N", "up"], ["W", "left"], ["E", "right"]];
-  var AUTO_MOTIONS = { walk: { template: "walk", label: "Walk", frames: 12, fps: 10 } };
+  var AUTO_DIRS = [["S", "down"], ["N", "up"], ["W", "left"], ["E", "right"], ["SE", "down-right"], ["SW", "down-left"], ["NE", "up-right"], ["NW", "up-left"]];
+  var AUTO_MOTIONS = {
+    walk: { template: "walk", label: "Walk", frames: 12, fps: 10 },
+    run: { template: "run", label: "Run", frames: 8, fps: 12 },
+    sneak: { template: "sneak", label: "Sneak", frames: 8, fps: 8 },
+    idle: { template: "idle", label: "Idle", frames: 8, fps: 6 }
+  };
   function initAutoAnimate({ $: $2, directions: directions2, frameOf, setAnim, F, handEdited = () => false }) {
     const st = { pick: new Set(AUTO_DIRS.map(([d]) => d)), built: null, frame: 0, timer: 0, done: [], undone: [] };
     const msg = (t) => {
@@ -64,13 +70,14 @@
       const b = st.built, c = $2("#aaCanvas");
       $2("#aaView").hidden = !b;
       if (!b) return;
-      const size = F(), z = Math.max(1, Math.floor(140 / size)), gap = 8;
-      c.width = b.items.length * (size * z + gap) - gap;
-      c.height = size * z;
+      // up to four directions per row
+      const size = F(), z = Math.max(1, Math.floor(140 / size)), gap = 8, cols = Math.min(4, b.items.length), cell = size * z + gap;
+      c.width = cols * cell - gap;
+      c.height = Math.ceil(b.items.length / cols) * cell - gap;
       const ctx = c.getContext("2d");
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, c.width, c.height);
-      b.items.forEach((it, i) => ctx.drawImage(toCanvas(it.px[st.frame % it.px.length], size), i * (size * z + gap), 0, size * z, size * z));
+      b.items.forEach((it, i) => ctx.drawImage(toCanvas(it.px[st.frame % it.px.length], size), i % cols * cell, (i / cols | 0) * cell, size * z, size * z));
       $2("#aaFrameLabel").textContent = `frame ${st.frame % b.frames + 1} / ${b.frames}`;
     }
     function stop() {
