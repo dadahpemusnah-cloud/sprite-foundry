@@ -16,6 +16,8 @@ step auto-anim  node tests/auto-animate.mjs
 step walk-12   node tests/walk-quality.mjs
 step frame-chk  node tests/frame-check.mjs
 step phaser    node tests/phaser-walk.mjs
+step phone     node tests/phone-width.mjs
+step help      node tests/help-links.mjs
 if [ -n "${GODOT:-}" ]; then
   step godot-front env SF_SPARSE=1 SF_ANIMS=anIdle,anWalk,anAttack,anRun,anJump,anHurt,anDeath tests/run-godot-check.sh "$W/gf" "$SF_ENGINE"
   step godot-side  env SF_IMAGE=tests/character-side.png SF_ANIMS=anIdle tests/run-godot-check.sh "$W/gs" "$SF_ENGINE"

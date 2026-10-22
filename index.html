@@ -563,7 +563,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       <div class="group">
         <h2 class="label"><label for="exportPreset">Export preset</label></h2>
         <div class="row">
-          <select id="exportPreset" style="flex:1;width:auto">
+          <select id="exportPreset" style="flex:1 1 0;min-width:0;width:auto">
             <option value="phaser">Phaser: sheet + atlas JSON</option>
             <option value="full">Full pack: sheet, JSON, GIFs, frames</option>
             <option value="frames">Individual PNG frames</option>
@@ -571,7 +571,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
           </select>
           <button id="presetBtn" type="button">Export .zip</button>
         </div>
-        <label class="field" for="dirNames">direction names <select id="dirNames" style="width:auto;max-width:100%"><option value="compass">compass: walk, walk_n, walk_w, walk_e</option><option value="screen">screen: walk_down, walk_up, walk_left, walk_right</option></select></label>
+        <label class="field" for="dirNames" style="flex-wrap:wrap">direction names <select id="dirNames" style="flex:1 1 10em;min-width:0;width:auto"><option value="compass">compass (walk, walk_e)</option><option value="screen">screen (walk_down, walk_right)</option></select></label>
         <p class="hint">Direction names apply to an animation drawn in several directions (Image to pixel art, Direction) in every export: atlas tags, manifest, GIFs, Aseprite tags and the Godot and Unity packs.</p>
         <p class="hint">Every preset uses the selected rows and scale and includes manifest.json, which lists each file with its pixel size, the frame size, fps, loop and pivot.</p>
       </div>
@@ -15494,6 +15494,16 @@ self.onmessage = async e => {
           undo: "Test poses are previews only and are never saved. Reset pose returns to the exact rest pose."
         },
         {
+          title: "6 \xB7 Auto Animate: walk in four directions",
+          go: "#aaPanel",
+          appears: "with parts and joints",
+          controls: [C("Preview", "#aaPreview"), C("Apply", "#aaApply"), C("Undo", "#aaUndo"), C("frames per direction", "#aaFrames"), C("speed", "#aaFps")],
+          do: "Give each direction you want its own image (Image to pixel art, Direction: down S, up N, left W, right E) with parts and joints. In Auto Animate, tick the directions, keep 12 frames at 10 fps or change them, click Preview to watch every direction side by side, then Apply.",
+          expect: "One walk row per direction (walk, walk_n, walk_w, walk_e; or walk_down\u2026 in exports with screen direction names), each an ordinary animation you can edit in Manual or frame by frame.",
+          watch: "A direction without its own image is listed and skipped: the app does not invent a back or side view. The frame check catches gaps, ground and jumps, not whether the walk looks natural: watch for sliding feet and crossing limbs.",
+          undo: "Undo in Auto Animate removes the walk from every direction at once; it asks first if you edited it since. An existing walk is only replaced after you confirm."
+        },
+        {
           title: "6 \xB7 Animate: Template Motion or Manual",
           go: "#anTabs",
           appears: "with parts and joints",
@@ -15760,9 +15770,10 @@ self.onmessage = async e => {
         { ...C("GIF of current", "#gifBtn"), text: "An animated GIF of the animation shown." },
         { ...C("Aseprite .aseprite", "#aseBtn"), text: "Every animation as a tag, for Aseprite." },
         { ...C("Full pack .zip", "#zipBtn"), text: "Sheet, JSON, GIFs and single frames in one zip." },
-        { ...C("Export preset", "#exportPreset"), text: "Phaser, Full pack, Individual PNG frames, Animated GIF previews, Godot 4, Unity, or a trimmed packed atlas. Export .zip writes it with manifest.json." }
+        { ...C("Export preset", "#exportPreset"), text: "Phaser, Full pack, Individual PNG frames, Animated GIF previews, Godot 4, Unity, or a trimmed packed atlas. Export .zip writes it with manifest.json." },
+        { ...C("direction names", "#dirNames"), text: "For an animation drawn in several directions: compass names (walk, walk_n, walk_w, walk_e) or screen names (walk_down, walk_up, walk_left, walk_right) in every export." }
       ],
-      more: "The Godot and Unity files are checked against their formats; they have not been opened in those engines here. A command line (tools/sf-cli.mjs) writes the same files from a saved project."
+      more: "The Godot files, including the cutout scene, are loaded and played in Godot 4.3 by the project's tests, and the Phaser export in Phaser 3.90; the Unity files are checked against their format but have not been opened in Unity."
     },
     // ---------- Sprite Foundry: Image to pixel art ----------
     {
@@ -15885,6 +15896,21 @@ self.onmessage = async e => {
         { ...C("Make it trail", "#anFollow"), text: "Secondary motion: the part trails behind what it hangs from (cape, hair, tail)." },
         { ...C("Re-render ticked frames from the rig", "#anRerender"), text: "Frames edited by hand keep their pixels; this replaces them with the rig's frame." },
         { ...C("show pixels not from the image", "#anMade"), text: "Tints joint fill, hidden areas, drawings, back limbs and smears; says when a frame was edited by hand." }
+      ]
+    },
+    {
+      id: "auto-animate",
+      mode: "foundry",
+      title: "6 \xB7 Auto Animate",
+      go: "#aaPanel",
+      appears: "with parts and joints",
+      summary: "One motion (walk) on down, up, left and right at once, each from its direction's own image.",
+      items: [
+        { ...C("Auto Animate", "#aaPanel"), text: "At the top of step 6. Lists down (S), up (N), left (W), right (E) and says which need an image or parts and joints." },
+        { ...C("frames per direction", "#aaFrames"), text: "12 frames at 10 fps by default: 48 frames, 1.2 s per loop. The name is walk unless you change it." },
+        { ...C("Preview", "#aaPreview"), text: "Every chosen direction side by side, with its frame-check warnings; Play runs them in step. Nothing is added yet." },
+        { ...C("Apply", "#aaApply"), text: "Adds the animation to every chosen direction; asks before replacing one of the same name." },
+        { ...C("Undo", "#aaUndo"), text: "Undo and Redo act on every direction at once." }
       ]
     },
     {

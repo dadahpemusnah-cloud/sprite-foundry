@@ -563,7 +563,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       <div class="group">
         <h2 class="label"><label for="exportPreset">Export preset</label></h2>
         <div class="row">
-          <select id="exportPreset" style="flex:1;width:auto">
+          <select id="exportPreset" style="flex:1 1 0;min-width:0;width:auto">
             <option value="phaser">Phaser: sheet + atlas JSON</option>
             <option value="full">Full pack: sheet, JSON, GIFs, frames</option>
             <option value="frames">Individual PNG frames</option>
@@ -571,7 +571,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
           </select>
           <button id="presetBtn" type="button">Export .zip</button>
         </div>
-        <label class="field" for="dirNames">direction names <select id="dirNames" style="width:auto;max-width:100%"><option value="compass">compass: walk, walk_n, walk_w, walk_e</option><option value="screen">screen: walk_down, walk_up, walk_left, walk_right</option></select></label>
+        <label class="field" for="dirNames" style="flex-wrap:wrap">direction names <select id="dirNames" style="flex:1 1 10em;min-width:0;width:auto"><option value="compass">compass (walk, walk_e)</option><option value="screen">screen (walk_down, walk_right)</option></select></label>
         <p class="hint">Direction names apply to an animation drawn in several directions (Image to pixel art, Direction) in every export: atlas tags, manifest, GIFs, Aseprite tags and the Godot and Unity packs.</p>
         <p class="hint">Every preset uses the selected rows and scale and includes manifest.json, which lists each file with its pixel size, the frame size, fps, loop and pivot.</p>
       </div>
