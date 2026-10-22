@@ -194,8 +194,9 @@ like the rig; an AnimationPlayer holds every animation (and RESET, the rest pose
 ${lines.join("\n")}
 Godot turns the pictures itself (nearest filter), so turned frames are close to, not identical to, the
 sheet; the rest pose is exact. Keys and easing are ours where Godot has the same transition; ease
-in-out, curves, secondary motion and uneven frame times have a key on every frame. Colour variants
-are in the sheets, not the cutout scene.
+in-out, curves, secondary motion and uneven frame times have a key on every frame. Colour variants,
+flash frames and joint fill (the colour the sheet spreads into gaps at turned joints) are in the
+sheets, not the cutout scene: where a part turns far, the scene can show a gap the sheet fills.
 `;
   }
   function variantsReadme(manifest) {

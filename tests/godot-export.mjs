@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import fs from 'node:fs';
 import path from 'node:path';
 const out = process.argv[2], engine = process.argv[3] === 'webkit' ? webkit : chromium;
-const anims = (process.argv[4] || 'anIdle,anWalk,anAttack').split(',');
+const anims = (process.env.SF_ANIMS || process.argv[4] || 'anIdle,anWalk,anAttack').split(',');
 const b = await engine.launch();
 const p = await b.newPage({ acceptDownloads: true });
 const errors = [];
@@ -12,7 +12,7 @@ await p.route('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
 await p.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
 p.on('pageerror', e => errors.push(e.message));
 await p.goto('file://' + path.resolve(process.env.SF_HTML || 'index.html'));
-await p.setInputFiles('#importFile', 'tests/character.png');
+await p.setInputFiles('#importFile', process.env.SF_IMAGE || 'tests/character.png');
 await p.waitForSelector('#bgWork:not([hidden])');
 await p.selectOption('#bgMethod', 'flood');
 await p.click('#bgRun');
@@ -23,8 +23,10 @@ await p.click('#rigSuggest');
 for (const a of anims) { await p.click('#' + a); await p.waitForTimeout(300); }
 // SF_SPARSE: drop the attack keys at frames 2 and 3 so frames 2-3 are eased in-betweens Godot must interpolate
 if (process.env.SF_SPARSE) {
-  const name = await p.evaluate(() => __sf.animInfo.name);
-  if (name !== 'attack') throw new Error('expected attack selected, got ' + name);
+  await p.selectOption('#anName', 'attack');
+  for (let i = 0; i < 64 && await p.evaluate(() => __sf.animInfo.frame) !== 0; i++) await p.click('#anPrev');
+  const name = await p.evaluate(() => __sf.animInfo.name), at = await p.evaluate(() => __sf.animInfo.frame);
+  if (name !== 'attack' || at !== 0) throw new Error(`expected attack frame 0, got ${name} frame ${at}`);
   await p.click('#anNext'); await p.click('#anNext'); await p.click('#anKeyDel');
   await p.click('#anNext'); await p.click('#anKeyDel');
   const keys = await p.evaluate(() => __sf.animInfo.anim.keys.map(k => k.t + ':' + k.ease));

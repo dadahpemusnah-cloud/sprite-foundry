@@ -8,7 +8,8 @@
   "scripts": {
     "build": "node tools/build.mjs",
     "check:build": "node tools/check-build.mjs",
-    "test:godot": "tests/run-godot-check.sh"
+    "test:godot": "tests/run-godot-check.sh",
+    "test": "tests/run-all.sh"
   },
   "devDependencies": {
     "jszip": "^3.10.1",

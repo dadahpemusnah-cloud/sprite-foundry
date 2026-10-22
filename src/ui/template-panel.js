@@ -53,7 +53,6 @@
       });
       const missing = DIRECTIONS.filter((x) => !have.includes(x));
       if (missing.length) items.push(Object.assign(document.createElement("li"), { className: "others", textContent: "Needs its own artwork: " + missing.join(", ") + " (add it in Image to pixel art, Direction)" }));
-      items.push(Object.assign(document.createElement("li"), { className: "others", textContent: "Diagonal directions (SE, NE, NW, SW) are not supported yet." }));
       $2("#tmDirs").replaceChildren(...items);
       $2("#tmAddTo").querySelector('option[value="all"]').disabled = all.length < 2;
       if (all.length < 2) $2("#tmAddTo").value = "this";
