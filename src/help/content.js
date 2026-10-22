@@ -10,10 +10,10 @@
         {
           title: "Choose what to make",
           go: "#typeSeg",
-          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("Chibi", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
-          do: "Under Sprite type, click Character, Creature, Ship, Item, RPG Hero or Chibi. Under Sprite size, click a size such as 12 px or 32 px.",
+          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("Chibi", "#typeSeg"), C("Adventurer", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
+          do: "Under Sprite type, click Character, Creature, Ship, Item, RPG Hero, Chibi or Adventurer. Under Sprite size, click a size such as 12 px or 32 px.",
           expect: "The preview in the middle shows a new sprite of that type, and the Variations row at the bottom fills with others like it.",
-          watch: 'RPG Hero always uses a 28 px sprite and Chibi a 32 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak, and attack, cast or bow when its class carries gear; 8 frames each); Chibi class picks Knight, Mage, Archer and so on; its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
+          watch: 'RPG Hero always uses a 28 px sprite, Chibi a 32 px one and Adventurer a 48 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak, and attack, cast or bow when its class carries gear; 8 frames each); Chibi class picks Knight, Mage, Archer and so on; Adventurer is a taller, shaded character rendered from a 3D model in the same 8 directions (idle, walk, run, and attack or cast); its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
           undo: "Click the type or size you had before. If the app asked you, Cancel keeps everything as it was."
         },
         {
@@ -278,8 +278,10 @@
       go: "#typeSeg",
       summary: "Makes a sprite from seeds. The left column of the Sprite Foundry page.",
       items: [
-        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, Chibi, or Imported (your own image, made in Image to pixel art)." },
+        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, Chibi, Adventurer, or Imported (your own image, made in Image to pixel art)." },
         { ...C("Chibi", "#typeSeg"), text: "A 32 px character drawn as body parts with joints in all 8 directions (down, up, left, right and the diagonals), with idle, walk, run and sneak in every direction, 8 frames each. The seeds and variations draw a new one (hair, headwear, face, outfit, build, colours); it asks first if you changed its parts, joints or animations. The left-facing directions mirror the right-facing body; gear stays in its own hand." },
+        { ...C("Adventurer", "#typeSeg"), text: "A 48 px character rendered from a 3D model, so its 8 directions are 8 real views of one figure (shaded, with each class's own pose and face). It has body parts, joints and the hidden parts of each limb, with idle, walk, run and attack (or cast) in every direction, 8 frames each; the feet stay on the ground and a cape or robe sways. Drawing it takes a few seconds per class. The colour seed recolours it; it asks first if you changed its parts, joints or animations." },
+        { ...C("Adventurer class", "#advClass"), text: "Fighter (sword on the shoulder, cape), Paladin (closed helm, kite shield), Barbarian (fur mantle, axe), Rogue (hood, reversed dagger), Wizard (robe, staff) or Druid (antler hood, crook, glowing leaf). Fighter, Paladin, Barbarian and Rogue get attack; Wizard and Druid get cast." },
         { ...C("Chibi class", "#chibiClass"), text: "Villager, Knight (helmet, sword, shield), Mage (pointed hat, staff), Archer (bow), Rogue (dagger), Warrior (axe or sword), Zombie, or Random (picked by the shape seed). Gear hangs from its hand in the rig; with gear the chibi also gets attack (blade), cast (staff) or bow, 8 frames, in every direction." },
         { ...C("Sprite size", "#sizeSeg"), text: "12, 16, 24 or 32 px. RPG Hero is always 28 px; Imported uses the size chosen in step 3. Each frame has 2 px of room around the sprite." },
         { ...C("Outline", "#outlineSeg"), text: "Tinted, Black or None. Drawn around the figure in every frame." }
@@ -745,6 +747,7 @@
   ];
   var LIMITS = [
     "The 2.5D Workshop draws a flat sprite that looks isometric; it is not a 3D model. Every direction and frame is drawn by you.",
+    "Adventurer renders one 3D model from 8 sides, so its views are real; at 48 px it is shaded by rules, not painted by hand, and it does not match a hand-drawn sprite sheet. In one Druid cast frame facing left the crook is cut off at the edge.",
     "Chibi draws its own body parts in 8 directions from one design, so its back and side views are real drawings, not guesses; they are made by rules, so they look generated rather than hand-drawn. The left-facing views mirror the right-facing ones.",
     "Image rigging moves and turns the parts you assign. One image cannot show the back, the sides, or details it does not contain: add an image per direction, or paint hidden areas yourself.",
     "Background removal, Rough guess, Suggest joints, Fill automatically, the rig preflight and the frame check are helpers. They give a starting point and catch common problems; check their results.",

@@ -1,9 +1,18 @@
   // src/rig/preflight.js
   var PIVOT_SLACK = 2;
   var HANDS = ["handL", "handR"];
+  // V7.2: a part's hidden area (painted in step 7, or drawn by a generator) counts as the part: a cape
+  // seen in two pieces either side of the legs is one cape, a shoulder under a cloak is still on the arm
+  function withHidden(seg2, layers, id) {
+    const hole = layers.layers[id] && layers.layers[id].hole, k = partIndex(seg2, id);
+    if (!hole || !k) return seg2;
+    const map = seg2.map.slice();
+    for (const t of hole.ts) if (map[t]) map[t] = k;
+    return { ...seg2, map };
+  }
   function nearest(layer, size, [x, y]) {
     let best = Infinity;
-    for (const t of layer.ts) {
+    for (const t of layer.hole ? [...layer.ts, ...layer.hole.ts] : layer.ts) {
       const d = Math.hypot(t % size + 0.5 - x, (t / size | 0) + 0.5 - y);
       if (d < best) best = d;
     }
@@ -43,7 +52,7 @@
     if (!un) add("pixels", "ready", "Pixels in parts", `All ${fmt(c.character)} working pixels belong to a part.`);
     else if (rig.keepUnassigned) add("pixels", "ready", "Pixels in parts", `${fmt(un)} of ${fmt(c.character)} working pixels are unassigned on purpose: they move with the whole body and never turn.`, { step: "parts", what: "unassigned" });
     else add("pixels", "attention", "Pixels in parts", `${fmt(un)} of ${fmt(c.character)} working pixels are unassigned: they move with the whole body and never turn, so they stay behind when a limb moves. Assign them in step 4 (they are shown in pink there), or mark them as intended.`, { step: "parts", what: "unassigned" });
-    const loose = seg2.parts.map((p) => [p.id, looseParts(seg2, p.id, { bridge: 3 * B, minPx: B * B })]).filter(([, l]) => l.length);
+    const loose = seg2.parts.map((p) => [p.id, looseParts(withHidden(seg2, layers, p.id), p.id, { bridge: 3 * B, minPx: B * B })]).filter(([, l]) => l.length);
     if (!loose.length) add("pieces", "ready", "Parts in one piece", "No part has a piece cut off from the rest of it.");
     else {
       const [id, l] = loose[0], more = loose.slice(1).map(([i]) => labelOf(i)), px = Math.ceil(l[0] / (B * B));
@@ -74,13 +83,16 @@
       }
       const own = nearest(layers.layers[id], layers.size, b.pivot) / B;
       let par = 0, lim = PIVOT_SLACK;
-      if (b.parent) {
-        const sug = suggestPivot(seg2, id, b.parent), box = layers.layers[id].box;
+      // joints that come from a 3D figure are where the limbs really turn: the 2D guess of where two
+      // parts touch, or of what a quarter turn would open, is not a fair test of them (it is still
+      // checked that they sit on their part)
+      if (b.parent && !rig.fromModel) {
+        const sug = suggestPivot(withHidden(seg2, layers, id), id, b.parent), box = layers.layers[id].box;
         lim = Math.max(PIVOT_SLACK, Math.max(box[2] - box[0], box[3] - box[1]) / B / 4);
         par = Math.hypot(x - sug[0], y - sug[1]) / B;
       }
       if (own > PIVOT_SLACK || par > lim) far.push({ id, d: Math.max(own, par / lim * PIVOT_SLACK), own, par, parent: b.parent });
-      if (b.parent && drawn(b.parent) && !loop) {
+      if (b.parent && drawn(b.parent) && !loop && !rig.fromModel) {
         const d = comesAway(layers, id, b.parent, b.pivot);
         if (d > (rig.bleed || 0) + B) away.push({ id, d, parent: b.parent });
       }

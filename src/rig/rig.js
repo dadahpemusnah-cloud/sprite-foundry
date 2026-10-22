@@ -192,7 +192,7 @@
       const fixed = old && old.auto === false;
       bones[id] = { parent, pivot: fixed ? old.pivot.slice() : suggestPivot(seg2, id, parent), auto: !fixed };
     }
-    const rig = { bones, order: [], bleed: prev ? prev.bleed : 2, ...prev && prev.keepUnassigned ? { keepUnassigned: true } : {} };
+    const rig = { bones, order: [], bleed: prev ? prev.bleed : 2, ...prev && prev.keepUnassigned ? { keepUnassigned: true } : {}, ...prev && prev.fromModel ? { fromModel: true } : {} };
     try {
       treeOrder(rig);
     } catch (e) {
@@ -495,6 +495,20 @@
       }
       if (best >= 0) owner[i] = ids[best];
     }
-    return { px, work: out, stats: { bleedPixels: shows[RING], holePixels: shows[HOLE], backPixels: shows[BACK], swapPixels: shows[SWAP], smearPixels: shows[SMEAR], drawn, clipped, owner, snapped, made } };
+    const stats = { bleedPixels: shows[RING], holePixels: shows[HOLE], backPixels: shows[BACK], swapPixels: shows[SWAP], smearPixels: shows[SMEAR], drawn, clipped, owner, snapped, made };
+    // a character made from a model knows its legs where a robe or a cape hides them
+    if (rig.fromModel) stats.feet = legLow(L, W, N);
+    return { px, work: out, stats };
+  }
+  // the row of the lowest leg pixel, hidden pixels included (-1 without legs)
+  function legLow(L, W, N) {
+    const S = L.size, B = S / N;
+    let y = -1;
+    for (const id of Object.keys(L.layers)) {
+      const lay = L.layers[id], M = W[id];
+      if (!M || !isLeg(id)) continue;
+      for (const t of lay.ts.concat(lay.hole ? lay.hole.ts : [])) y = Math.max(y, apply(M, [t % S + 0.5, (t / S | 0) + 0.5])[1]);
+    }
+    return y < 0 ? -1 : Math.floor(y / B);
   }
 

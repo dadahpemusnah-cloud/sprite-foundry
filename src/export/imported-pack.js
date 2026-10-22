@@ -37,7 +37,10 @@
       const r = rf.resultFor && rf.resultFor(v.dir);
       if (v.rest && v.rest.rig && r) views.push({ dir: v.dir, main: false, N: v.rest.N, ...restOf(r) });
     }
-    if (views.length > 1) out.push(...checkDirections(views));
+    // views rendered from one 3D model match by construction: a part looking shorter from behind is
+    // foreshortening, not a drawing mistake
+    const fromModel = ia.rest.rig && ia.rest.rig.fromModel && ia.views.every((v) => !v.rest || v.rest.rig && v.rest.rig.fromModel);
+    if (views.length > 1 && !fromModel) out.push(...checkDirections(views));
     return { findings: out, dirs: views.map((v) => v.dir) };
   }
   function importedSource(ctx, ia, rows, pixel) {

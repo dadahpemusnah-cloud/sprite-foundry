@@ -307,6 +307,12 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
         <p class="hint" id="chibiInfo"></p>
         <p class="hint">A class chooses the gear and headwear: Knight (helmet, sword, shield), Mage (pointed hat, staff), Archer (bow), Rogue (dagger), Warrior (axe or sword), Zombie, Villager. Gear moves with its hand, and a class with gear gets a combat motion (attack, cast or bow) in every direction.</p>
       </div>
+      <div class="group" id="advGroup" hidden>
+        <h2 class="label"><label for="advClass">Adventurer class</label></h2>
+        <select id="advClass"></select>
+        <p class="hint mono" id="advInfo" role="status"></p>
+        <p class="hint">A 48 px character rendered from a 3D figure in all 8 directions, with its class's look, pose and face: Fighter (sword on the shoulder), Paladin (shield forward), Barbarian (axe in both fists), Rogue (reverse-grip dagger), Wizard (leaning on his staff), Druid (a glowing leaf). It comes with idle, walk, run and attack or cast, 8 frames each. Drawing one takes a little while; the colour seed changes its colours.</p>
+      </div>
       <div class="group" id="heroGroup" hidden>
         <h2 class="label"><label for="heroClass">Class</label></h2>
         <select id="heroClass"></select>
@@ -1672,6 +1678,8 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     heroClass: "random",
     // V7.1: the class a Chibi is drawn as ("random": picked by the shape seed)
     chibiClass: "random",
+    // V7.2: the Adventurer's class
+    advClass: "fighter",
     heroLocks: {},
     lockColours: false,
     heroColourClass: null,
@@ -1707,6 +1715,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     if (SCALES.includes(saved.scale)) s.scale = saved.scale;
     if (BACKGROUNDS.includes(saved.bg)) s.bg = saved.bg;
     if (saved.heroClass === "random" || CLASS_NAMES.includes(saved.heroClass)) s.heroClass = saved.heroClass;
+    if (typeof saved.advClass === "string" && Object.prototype.hasOwnProperty.call(A3_CLASSES, saved.advClass)) s.advClass = saved.advClass;
     if (saved.chibiClass === "random" || typeof saved.chibiClass === "string" && Object.prototype.hasOwnProperty.call(CHIBI_CLASSES, saved.chibiClass)) s.chibiClass = saved.chibiClass;
     s.heroLocks = sanitizeHeroLocks(saved.heroLocks);
     if (typeof saved.lockColours === "boolean") s.lockColours = saved.lockColours;
@@ -2495,6 +2504,595 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     }
     return { px, owner, hidden };
   }
+  // src/generators/adv3d.js
+  // V7.2 (preview): the Adventurer as a small 3D figure rendered to pixel art. The body is built from
+  // signed-distance shapes (rounded cones for limbs, ellipsoids for head and chest, cone shells for robes
+  // and capes), seen by an orthographic camera tilted slightly down. Each of the 8 directions is a real
+  // view (the figure turns; nothing is mirrored), lit from the upper left of the screen, reduced to 5
+  // tones per material, with dark lines where a part passes in front of another. 48 px.
+  var A3_N = 48;
+  var A3_YAW = { S: 0, SE: 45, E: 90, NE: 135, N: 180, NW: -135, W: -90, SW: -45 };
+  var A3_TILT = 22 * Math.PI / 180;
+  // ---- vectors and distance functions (after Inigo Quilez's formulas)
+  const vSub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const vDot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const vLen = (a) => Math.hypot(a[0], a[1], a[2]);
+  const vNorm = (a) => {
+    const l = vLen(a) || 1;
+    return [a[0] / l, a[1] / l, a[2] / l];
+  };
+  const a3Clamp01 = (v) => Math.max(0, Math.min(1, v));
+  function sdEllipsoid(p, c, r) {
+    const q = [(p[0] - c[0]) / r[0], (p[1] - c[1]) / r[1], (p[2] - c[2]) / r[2]];
+    const k0 = vLen(q), k1 = Math.hypot(q[0] / r[0], q[1] / r[1], q[2] / r[2]);
+    return k1 === 0 ? -Math.min(...r) : k0 * (k0 - 1) / k1;
+  }
+  // a rounded cone between points a (radius ra) and b (radius rb): limbs, robes, staffs
+  function sdCone(p, a, b, ra, rb) {
+    const ba = vSub(b, a), pa = vSub(p, a), l2 = vDot(ba, ba);
+    const h = a3Clamp01(vDot(pa, ba) / l2), r = ra + (rb - ra) * h;
+    return vLen([pa[0] - ba[0] * h, pa[1] - ba[1] * h, pa[2] - ba[2] * h]) - r;
+  }
+  function sdBox(p, c, hw, round = 0) {
+    const q = [Math.abs(p[0] - c[0]) - hw[0] + round, Math.abs(p[1] - c[1]) - hw[1] + round, Math.abs(p[2] - c[2]) - hw[2] + round];
+    return vLen([Math.max(q[0], 0), Math.max(q[1], 0), Math.max(q[2], 0)]) + Math.min(Math.max(q[0], q[1], q[2]), 0) - round;
+  }
+  // ---- materials: 5 tones, from deepest shadow to glint
+  function a3Mat(h, s, l, kind = "matte") {
+    const r = ramp(h, s, l);
+    return { kind, tones: [mix(r.sh2, "#000000", 0.2), r.sh, r.base, r.hi, kind === "metal" ? mix(r.hi2, "#ffffff", 0.5) : r.hi2] };
+  }
+  var A3_CLASSES = { fighter: "Fighter", paladin: "Paladin", barbarian: "Barbarian", rogue: "Rogue", wizard: "Wizard", druid: "Druid" };
+  // the head is drawn larger than life (as in most game sprites): everything of the head part is scaled
+  // about the neck by A3_HEAD
+  var A3_HEAD = 1.12, A3_NECK = [0, 34, 0];
+  // the whole figure is drawn this much smaller than its model (about the soles), leaving room in the
+  // 48 px frame for a run's dip and lift and for weapons and capes that swing
+  var A3_SCALE = 0.84;
+  // the soles stand this far above the sprite's bottom edge: room for a dip, and for the outline
+  var A3_FLOOR = 4.5;
+  // a head pose: pitch (nod, + looks down), yaw (turn, + to its left), roll (tilt, + to its left), degrees
+  function a3Rot(v, hr, inverse = false) {
+    let [x, y, z] = v;
+    const steps = [["roll", (a) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a), z]], ["pitch", (a) => [x, y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)]], ["yaw", (a) => [x * Math.cos(a) + z * Math.sin(a), y, -x * Math.sin(a) + z * Math.cos(a)]]];
+    for (const [k, f] of inverse ? steps.slice().reverse() : steps) {
+      const a = (hr && hr[k] || 0) * Math.PI / 180 * (inverse ? -1 : 1) * (k === "pitch" ? -1 : 1);
+      if (a) [x, y, z] = f(a);
+    }
+    return [x, y, z];
+  }
+  const a3HeadXf = (l, hr = null) => {
+    const r = a3Rot([(l[0] - A3_NECK[0]) * A3_HEAD, (l[1] - A3_NECK[1]) * A3_HEAD, (l[2] - A3_NECK[2]) * A3_HEAD], hr);
+    return [A3_NECK[0] + r[0], A3_NECK[1] + r[1], A3_NECK[2] + r[2]];
+  };
+  // a stable pseudo-random value per small cell of the figure (texture that turns with it)
+  function a3Hash(q) {
+    const x = Math.floor(q[0] * 1.5), y = Math.floor(q[1] * 1.5), z = Math.floor(q[2] * 1.5);
+    let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 2147483647);
+    h = Math.imul(h ^ h >>> 13, 1274126177);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  }
+  // ---- shapes with a bounding sphere b = [x, y, z, r] (the renderer skips a shape whose sphere is
+  // farther away than the nearest surface found so far)
+  const A3 = {
+    cone: (a, b, ra, rb) => ({ d: (p) => sdCone(p, a, b, ra, rb), b: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, vLen(vSub(a, b)) / 2 + Math.max(ra, rb)] }),
+    ell: (c, r) => ({ d: (p) => sdEllipsoid(p, c, r), b: [...c, Math.max(...r)] }),
+    box: (c, hw, round = 0) => ({ d: (p) => sdBox(p, c, hw, round), b: [...c, vLen(hw)] }),
+    // an upright cylinder with flat ends (bands, hems)
+    cyl: (c, r, h) => ({ d: (p) => Math.max(Math.hypot(p[0] - c[0], p[2] - c[2]) - r, Math.abs(p[1] - c[1]) - h), b: [...c, Math.hypot(r, h)] }),
+    union: (...list) => {
+      const c = [0, 1, 2].map((k) => list.reduce((t, s) => t + s.b[k], 0) / list.length);
+      return { d: (p) => Math.min(...list.map((s) => s.d(p))), b: [...c, Math.max(...list.map((s) => vLen(vSub(c, s.b)) + s.b[3]))] };
+    },
+    // a shape with its own distance function inside a given sphere
+    custom: (b, d) => ({ d, b })
+  };
+  // ---- the figure: a list of shapes {part, mat, d, b}; character space: y up from the soles, the
+  // figure faces +z, its right hand is at -x
+  function a3Figure(cls, colourSeed) {
+    const rc = seedRng("a3:" + colourSeed), skinT = rc.pick(SKIN);
+    const flat = (c) => ({ kind: "flat", tones: Array(5).fill(c) });
+    const M = {
+      skin: { kind: "skin", tones: [mix(skinT[2], "#000000", 0.3), skinT[2], skinT[1], skinT[0], mix(skinT[0], "#ffffff", 0.25)] },
+      hair: a3Mat(rc.pick([28, 22, 40, 8]), rc.range(35, 55), rc.pick([26, 34, 46])),
+      white: a3Mat(40, 10, 84),
+      eye: flat(rc.pick(["#2b1d16", "#1d3550", "#25401f"])),
+      eyeWhite: flat("#f2ede4"),
+      lip: flat(mix(skinT[2], "#6a2424", 0.45)),
+      brow: flat(mix(skinT[2], "#000000", 0.55)),
+      metal: a3Mat(215, 10, 60, "metal"),
+      dark: a3Mat(220, 12, 32, "metal"),
+      gold: a3Mat(44, 75, 50, "metal"),
+      leather: { ...a3Mat(28, 42, 34), tex: 0.12 },
+      fur: { ...a3Mat(32, 30, 52), tex: 0.32 },
+      dleather: { ...a3Mat(250, 12, 22), tex: 0.1 },
+      red: a3Mat(355, 70, 34),
+      boot: { ...a3Mat(24, 32, 24), tex: 0.08 },
+      wood: a3Mat(30, 42, 34),
+      pants: a3Mat(rc() * 360, 16, 26),
+      leaf: a3Mat(110, 55, 42)
+    };
+    if (cls === "barbarian") {
+      // weathered skin a shade lighter, a dark grey-brown pelt, so the bare chest reads against it
+      M.fur = { ...a3Mat(30, 18, 34), tex: 0.32 };
+      M.leather = { ...a3Mat(24, 45, 26), tex: 0.12 };
+    }
+    const cloth = cls === "fighter" ? a3Mat(rc.pick([355, 215, 275, 5]), 62, 38) : cls === "wizard" ? a3Mat(rc.pick([228, 262, 205]), 58, 42) : cls === "paladin" ? a3Mat(rc.pick([0, 215, 210]), 65, 40) : cls === "rogue" ? a3Mat(rc.pick([355, 345, 260]), 58, 30) : cls === "barbarian" ? a3Mat(28, 35, 40) : a3Mat(rc.pick([105, 95, 125]), 36, 36);
+    M.cloth = { ...cloth, kind: "cloth" };
+    M.glow = { kind: "glow", tones: a3Mat(cls === "druid" ? 115 : rc.pick([195, 205, 285]), 90, 62, "metal").tones };
+    // V7.2: each class stands in its own way: joints that differ from the plain stance (arms down, feet
+    // under the hips), a head pose, and the face's expression
+    const POSE = {
+      fighter: { R: { elbow: [-10.6, 26, 2.4], wrist: [-8.2, 30, 4.4], hand: [-7.4, 31, 4.6] }, L: { elbow: [11.2, 25.6, -0.6], wrist: [8.4, 21.8, 1.8], hand: [7.6, 21.2, 2.6] }, stance: 1.3, head: { yaw: 6 }, face: { brows: "flat", eyes: "normal", mouth: "smirk", scar: true } },
+      paladin: { L: { elbow: [10.4, 25, 2.2], wrist: [8.2, 22, 6.2], hand: [7.6, 21.6, 6.8] }, stance: 1.1, face: { glow: true } },
+      barbarian: { R: { elbow: [-11, 24, 1.8], wrist: [-6.6, 19.8, 5.2], hand: [-5.6, 19.4, 5.8] }, L: { elbow: [11.4, 26.4, 1.6], wrist: [7.4, 27, 5.6], hand: [6.4, 27.4, 6.2] }, stance: 1.9, head: { pitch: -4 }, face: { brows: "angry", eyes: "normal", mouth: "shout", paint: true } },
+      rogue: { R: { elbow: [-9.4, 24.4, 1.6], wrist: [-8.8, 19.6, 4], hand: [-8.4, 18.6, 4.6] }, L: { elbow: [10, 25.4, -0.6], wrist: [7.6, 21.8, 1.6], hand: [6.8, 21.2, 2.4] }, stance: 1.2, head: { roll: 9, pitch: 7, yaw: -8 }, face: { brows: "raised", eyes: "narrow", mouth: "none" } },
+      wizard: { R: { elbow: [-10.2, 25.2, 2], wrist: [-10.6, 27.8, 3.6], hand: [-10.6, 28.6, 3.6] }, head: { pitch: 8 }, face: { brows: "bushy", eyes: "normal", mouth: "none" } },
+      druid: { L: { elbow: [10.2, 25.4, 1.6], wrist: [9.6, 25.6, 5.6], hand: [9.2, 26.4, 6.4] }, head: { pitch: -3 }, face: { brows: "flat", eyes: "closed", mouth: "line", mark: true } }
+    }[cls] || {};
+    const P = [], add = (part, mat, s) => {
+      if (part !== "head") return P.push({ part, mat, d: s.d, b: s.b });
+      const C = A3_NECK, k = A3_HEAD, hr = POSE.head, inv = (p) => {
+        const r = a3Rot([p[0] - C[0], p[1] - C[1], p[2] - C[2]], hr, true);
+        return [C[0] + r[0] / k, C[1] + r[1] / k, C[2] + r[2] / k];
+      };
+      P.push({ part, mat, d: (p) => s.d(inv(p)) * k, b: [...a3HeadXf(s.b, hr), s.b[3] * k] });
+    };
+    // the body: what each region is made of, and the build (w widens shoulders, chest and limbs)
+    const BODY = {
+      fighter: { w: 1.08, torso: "metal", pelvis: "cloth", upper: "metal", fore: "metal", hand: "metal", shin: "metal", foot: "metal", belt: "dark", plate: true },
+      paladin: { w: 1.12, torso: "gold", pelvis: "cloth", upper: "gold", fore: "gold", hand: "gold", shin: "gold", foot: "gold", belt: "dark", plate: true },
+      wizard: { w: 1, torso: "cloth", pelvis: "cloth", upper: "cloth", fore: "cloth", hand: "skin", shin: "boot", foot: "boot", belt: "gold", robe: true },
+      druid: { w: 1.03, torso: "leather", pelvis: "leather", upper: "cloth", fore: "leather", hand: "skin", shin: "boot", foot: "boot", belt: "boot" },
+      barbarian: { w: 1.22, torso: "skin", pelvis: "leather", upper: "skin", fore: "skin", hand: "skin", shin: "fur", foot: "boot", belt: "boot", thigh: "leather" },
+      rogue: { w: 1, torso: "dleather", pelvis: "dleather", upper: "dleather", fore: "dleather", hand: "dleather", shin: "boot", foot: "boot", belt: "boot", thigh: "dleather" }
+    }[cls];
+    const B = (k) => M[BODY[k]] || M[k], w = BODY.w, wz = 1 + (w - 1) * 0.6, robe = !!BODY.robe, plate = !!BODY.plate, druid = cls === "druid";
+    // where the right hand is: gear for it is placed relative to this
+    const H = [-8.8 * w, 17, 1.1], RX = (x) => x - (8.8 * w - 8.8), LX = (x) => x + (8.8 * w - 8.8), hands = {};
+    // the rig's joints in character space: where each part turns
+    const joints = { pelvis: [0, 20.6, 0], torso: [0, 23.2, 0], head: [0, 33.4, 0], cloak: [0, 31, -2], robe: [0, 23, 0] };
+    for (const s of ["R", "L"]) {
+      const X = (x) => (s === "R" ? -1 : 1) * x;
+      const st = POSE.stance || 1, J = { shoulder: [X(7.6 * w), 31.2, 0], elbow: [X(8.4 * w), 24.6, 0.4], wrist: [X(8.7 * w), 18.8, 0.9], hand: [X(8.8 * w), 17, 1.1], hip: [X(3 * w), 19.6, 0], knee: [X((3.2 * w) * (1 + (st - 1) * 0.7)), 10.8, 0.4], ankle: [X(3.2 * w * st), 2.6, 0], foot: [X(3.2 * w * st), 1.3, 1.1], ...POSE[s] || {} };
+      hands[s] = J.hand;
+      Object.assign(joints, { ["upperArm" + s]: J.shoulder, ["forearm" + s]: J.elbow, ["hand" + s]: J.wrist, ["thigh" + s]: J.hip, ["shin" + s]: J.knee, ["foot" + s]: J.ankle });
+      add("upperArm" + s, B("upper"), A3.cone(J.shoulder, J.elbow, 2.6 * w, 2.2 * w));
+      add("forearm" + s, B("fore"), robe ? A3.cone(J.elbow, [J.wrist[0], J.wrist[1] - 0.3, J.wrist[2]], 2.2, 3) : A3.cone(J.elbow, J.wrist, 2.2 * w, 1.8 * w));
+      add("hand" + s, B("hand"), A3.ell(J.hand, [1.7 * w, 2, 1.6 * w]));
+      add("thigh" + s, BODY.thigh ? B("thigh") : M.pants, A3.cone(J.hip, J.knee, 3 * wz, 2.4 * wz));
+      add("shin" + s, B("shin"), A3.cone(J.knee, J.ankle, 2.4 * wz, 1.85 * wz));
+      add("foot" + s, B("foot"), A3.box(J.foot, [1.85 * wz, 1.3, 2.9], 0.75));
+      if (!plate) add("shin" + s, cls === "barbarian" ? M.leather : M.boot, A3.cyl([J.knee[0], J.knee[1] - 1.6, J.knee[2] * 0.6], 2.55 * wz, 0.8));
+      if (plate) {
+        add("upperArm" + s, B("upper"), A3.ell([J.shoulder[0], J.shoulder[1] + 0.7, J.shoulder[2]], [3.4 * w, 2.7, 3.3 * w]));
+        add("shin" + s, B("shin"), A3.ell([J.knee[0], J.knee[1], J.knee[2] + 1.3], [1.9 * wz, 1.7, 1.4]));
+        add("forearm" + s, B("fore"), A3.cyl([J.wrist[0], J.wrist[1] + 1, J.wrist[2]], 2.1 * w, 0.7));
+      } else add("forearm" + s, robe ? M.gold : M.boot, A3.cyl([J.wrist[0], J.wrist[1] + (robe ? 0.2 : 1.3), J.wrist[2]], robe ? 3.05 : 2 * w, 0.6));
+    }
+    add("pelvis", B("pelvis"), A3.ell([0, 20.6, 0], [6 * w, 3.6, 3.8 * wz]));
+    add("torso", B("torso"), A3.union(A3.ell([0, 28.6, 0], [7.3 * w, 5.4, 4.3 * wz]), A3.ell([0, 23.6, 0], [5.9 * w, 3.6, 3.7 * wz])));
+    add("pelvis", B("belt"), A3.cyl([0, 22.3, 0], 6.15 * w, 0.7));
+    add("head", M.skin, A3.cone([0, 32.5, -0.2], [0, 35.5, 0], 2.2, 2.1));
+    // the head: skull, ears, nose, eyes (white and iris), brows, mouth
+    add("head", M.skin, A3.ell([0, 39.4, 0.2], [5.5, 6.1, 5.6]));
+    for (const k of [1, -1]) {
+      add("head", M.skin, A3.ell([5.4 * k, 39.1, 0], [0.8, 1.5, 1.1]));
+    }
+    add("head", M.skin, A3.ell([0, 37.9, 5.6], [0.85, 1.2, 0.95]));
+    const hair = (low) => A3.custom([0, 40, 0, 7], (p) => {
+      // a cap over the skull: down to the brows in front, to `low` at the back
+      const front = a3Clamp01(p[2] / 3.5), thr = low + (41.9 - low) * front;
+      return Math.max(sdEllipsoid(p, [0, 39.9, -0.2], [5.85, 6.35, 5.95]), (thr - p[1]) * 0.6);
+    });
+    // ---- class gear and clothing
+    if (cls === "fighter") {
+      // an open helmet with a nose guard and a plume; plate with a tabard and a gold boss; a cape; a longsword
+      // a shell (not a solid), so the face shows through its opening
+      add("head", M.metal, A3.custom([0, 40, 0, 7.5], (p) => Math.max(sdEllipsoid(p, [0, 40, -0.1], [6.2, 6.8, 6.3]), -sdEllipsoid(p, [0, 40, -0.1], [5.7, 6.3, 5.8]), -sdBox(p, [0, 38.2, 5], [3.6, 3.6, 3.4], 0.8), 33.6 - p[1])));
+      add("head", M.metal, A3.box([0, 40.2, 6.05], [0.4, 1.9, 0.45], 0.2));
+      add("head", M.dark, A3.cyl([0, 41.9, -0.1], 6.3, 0.45));
+      add("head", M.cloth, A3.union(A3.cone([0, 46.2, 0.6], [0, 46.6, -3.4], 1.55, 1.25), A3.cone([0, 46.6, -3.4], [0, 44.4, -6], 1.25, 0.8)));
+      add("torso", M.cloth, A3.box([0, 23.6, 4.25], [2.3, 6.4, 0.6], 0.3));
+      add("pelvis", M.cloth, A3.box([0, 16.4, 3.95], [2.3, 3.9, 0.5], 0.3));
+      add("torso", M.gold, A3.ell([0, 26, 4.95], [1.1, 1.3, 0.45]));
+      add("cloak", M.cloth, A3.custom([0, 17, -2, 14], (p) => capeD(p, 31.5, 6.2, 9.8, -2.2)));
+      add("cloak", M.gold, A3.custom([0, 4, -2, 11], (p) => capeTrim(p, 31.5, 6.2, 9.8, -2.2)));
+      add("cloak", M.gold, A3.ell([0, 23, -9], [2, 2.2, 0.7]));
+      for (const k of [1, -1]) {
+        add("torso", M.gold, A3.ell([4.6 * k, 31.4, 3.3], [0.85, 0.85, 0.6]));
+        for (const dy of [-0.6, 1.4]) add("upperArm" + (k > 0 ? "L" : "R"), M.gold, A3.ell([8.6 * k, 32.4 + dy, 2.9], [0.4, 0.4, 0.4]));
+      }
+      add("pelvis", M.gold, A3.ell([0, 22.3, 4.1], [1, 0.75, 0.45]));
+      add("pelvis", M.leather, A3.ell([4.9, 20.1, 3.1], [1.4, 1.7, 1.1]));
+      add("pelvis", M.gold, A3.box([0, 16.8, 4.5], [0.45, 1.7, 0.3]));
+      add("pelvis", M.gold, A3.box([0, 17.6, 4.5], [1.3, 0.45, 0.3]));
+      // the longsword rests on the right shoulder, blade up and back past the head
+      const h = hands.R, tip = [-12.6, 41.6, -3.8], u = vNorm(vSub(tip, h));
+      const along = (t) => [h[0] + u[0] * t, h[1] + u[1] * t, h[2] + u[2] * t];
+      add("weapon", M.metal, A3.cone(along(1.6), tip, 1, 0.55));
+      add("weapon", M.gold, A3.cone([h[0] - 1.9, h[1] + 1.2, h[2] - 0.4], [h[0] + 1.9, h[1] + 0.9, h[2] + 1.2], 0.6, 0.6));
+      add("weapon", M.leather, A3.cone(along(-0.6), along(-2.6), 0.6, 0.6));
+      add("weapon", M.gold, A3.ell(along(-3.2), [0.85, 0.85, 0.85]));
+    } else if (cls === "wizard") {
+      // a pointed hat with a broad brim and a gold band, white hair and a long beard below the mouth,
+      // a robe to the ankles with a gold hem, an orb staff
+      add("head", M.white, hair(33.5));
+      add("head", M.white, A3.cone([0, 34.6, 4.6], [0, 26.2, 5.8], 3.3, 0.6));
+      add("head", M.white, A3.ell([0, 36, -2.6], [5.3, 6.5, 3]));
+      add("head", M.cloth, A3.cyl([0, 44.2, 0], 9.6, 0.55));
+      add("head", M.cloth, A3.union(A3.cone([0, 44.4, 0], [-0.6, 46.9, -1.3], 5.5, 2.5), A3.cone([-0.6, 46.9, -1.3], [-1.8, 48, -4.2], 2.5, 0.5)));
+      for (const k of [1, -1]) add("head", M.white, A3.cone([5.2 * k, 38, 0.8], [5.5 * k, 31.6, 1.6], 1.3, 1));
+      add("pelvis", M.gold, A3.cone([1.6, 22, 4.3], [2.3, 15, 5.4], 0.65, 0.55));
+      // a band round the hat: a thin slice of the hat's own cone
+      add("head", M.gold, A3.custom([0, 45.3, 0, 6.5], (p) => Math.max(Math.abs(sdCone(p, [0, 44.4, 0], [-0.6, 46.9, -1.3], 5.5, 2.5)) - 0.3, Math.abs(p[1] - 45.2) - 0.55)));
+      // (cut flat at the hem: the cone's round end would reach below the feet)
+      add("robe", M.cloth, A3.custom([0, 13, 0.4, 14], (p) => Math.max(clothD(sdCone(p, [0, 24, 0.2], [0, 3.6, 0.6], 6.4, 9.4), p, 0.35), 3.6 - p[1])));
+      add("robe", M.gold, A3.custom([0, 4, 0.6, 10.5], (p) => Math.max(sdCone(p, [0, 24, 0.2], [0, 3.6, 0.6], 6.55, 9.55), Math.abs(p[1] - 4.3) - 0.7)));
+      add("torso", M.gold, A3.box([0, 26.2, 4.35], [0.55, 6, 0.45], 0.2));
+      // leaning on the staff: it stands through the raised right hand
+      const sx = hands.R[0], sz = hands.R[2];
+      add("weapon", M.wood, A3.cone([sx, 0.6, sz], [sx, 46, sz], 0.9, 0.8));
+      add("weapon", M.glow, A3.ell([sx, 48, sz], [2.1, 2.1, 2.1]));
+      add("weapon", M.gold, A3.cyl([sx, 45.8, sz], 1.3, 0.6));
+    } else if (cls === "paladin") {
+      // a closed golden helm with a visor slit and a crest, gold plate, a tabard, a kite shield with a cross
+      // on the left arm, a sword pointing down
+      add("head", M.gold, A3.custom([0, 40, 0, 7.5], (p) => Math.max(sdEllipsoid(p, [0, 40, -0.1], [6.2, 6.9, 6.3]), 33.4 - p[1])));
+      // the visor slit and breathing slot stand just proud of the helm, so they show
+      add("head", M.dark, A3.box([0, 39.6, 6.15], [3.3, 0.5, 0.4], 0.15));
+      add("head", M.dark, A3.box([0, 37.4, 6.2], [0.4, 1.5, 0.35], 0.1));
+      add("head", M.gold, A3.cyl([0, 41.6, -0.1], 6.35, 0.45));
+      add("head", M.gold, A3.box([0, 44.6, -0.5], [0.6, 2.8, 4.8], 0.5));
+      add("torso", M.cloth, A3.box([0, 23.6, 4.4 * wz], [2.4, 6.2, 0.6], 0.3));
+      add("pelvis", M.cloth, A3.box([0, 16.4, 4.1 * wz], [2.4, 3.9, 0.5], 0.3));
+      add("torso", M.white, A3.box([0, 24.5, 4.95 * wz], [0.5, 2.6, 0.3]));
+      add("torso", M.white, A3.box([0, 25.4, 4.95 * wz], [1.6, 0.5, 0.3]));
+      add("cloak", M.cloth, A3.custom([0, 17, -2, 14], (p) => capeD(p, 31.5, 6.6, 10.2, -2.4)));
+      add("cloak", M.gold, A3.custom([0, 4, -2, 11], (p) => capeTrim(p, 31.5, 6.6, 10.2, -2.4)));
+      // the kite shield: a flat gold rim, a red face, a gold cross, held in front of the left forearm
+      // the shield is held forward on the left forearm, covering that side of the chest
+      const SX = hands.L[0] - 0.6, SZ = hands.L[2] + 1.5;
+      const shieldD = (p, grow, zc, zh) => Math.max(Math.min(sdEllipsoid([p[0], p[1], 0], [SX, 24.6, 0], [4.9 + grow, 4.2 + grow, 1]), sdCone([p[0], p[1], 0], [SX, 23.8, 0], [SX, 13.4, 0], 4.7 + grow, 0.6 + grow)), Math.abs(p[2] - zc) - zh);
+      add("shield", M.gold, A3.custom([SX, 20.8, SZ, 10.5], (p) => shieldD(p, 0, SZ, 0.5)));
+      add("shield", { ...a3Mat(355, 72, 44), kind: "matte" }, A3.custom([SX, 20.8, SZ + 0.6, 10.5], (p) => shieldD(p, -1, SZ + 0.65, 0.3)));
+      add("shield", M.gold, A3.union(A3.box([SX, 20.8, SZ + 0.95], [0.6, 5.4, 0.2]), A3.box([SX, 23.6, SZ + 0.95], [3, 0.6, 0.2])));
+      add("weapon", M.metal, A3.cone([H[0] - 0.4, 15.4, 2.4], [H[0] - 2.2, 3.2, 6.2], 0.95, 0.5));
+      add("weapon", M.gold, A3.cone([H[0] + 1.6, 16.2, 1.8], [H[0] - 2.2, 15.4, 2.8], 0.6, 0.6));
+      add("weapon", M.gold, A3.ell([H[0] + 0.3, 19.2, 0.8], [0.8, 0.8, 0.8]));
+    } else if (cls === "barbarian") {
+      // a bare, broad chest, a fur mantle on the shoulders, wild hair and a beard, a leather kilt with a
+      // fur-trimmed belt, fur boots, a great axe
+      add("head", M.hair, hair(33.2));
+      add("head", M.hair, A3.cone([0, 35.4, 4.6], [0, 30.8, 5.2], 3.6, 1.4));
+      for (const k of [1, -1]) add("head", M.hair, A3.cone([4.8 * k, 39, -1.5], [5.6 * k, 31.5, -1.5], 1.6, 1));
+      for (const k of [1, -1]) add("torso", M.skin, A3.ell([3.3 * k, 28.8, 3.4 * wz], [3.4, 2.4, 1.6]));
+      add("torso", M.fur, A3.custom([0, 31.5, -1.5, 11], (p) => Math.max(sdEllipsoid(p, [0, 31.6, -1.6], [10.2, 2.8, 6.2]), 30 - p[1])));
+      add("torso", M.leather, A3.cone([7.6, 31, 3.6], [-6.2, 21.6, 4.8], 0.6, 0.6));
+      add("pelvis", M.fur, A3.cyl([0, 22.3, 0], 6.3 * w, 0.8));
+      add("pelvis", M.leather, A3.custom([0, 16, 0, 9], (p) => clothD(Math.max(sdCone(p, [0, 21, 0], [0, 12.5, 0.3], 6.8 * w, 7.6 * w), 12.5 - p[1]), p, 0.25)));
+      // the great axe gripped across the body in both fists, its head up by the left shoulder
+      const a0 = vSub(hands.R, [1.6, 2.2, 0.4]), dirA = vNorm(vSub(hands.L, hands.R)), a1 = [hands.L[0] + dirA[0] * 3.2, hands.L[1] + dirA[1] * 3.2, hands.L[2] + dirA[2] * 3.2];
+      add("weapon", M.wood, A3.cone(a0, a1, 0.75, 0.7));
+      add("weapon", M.metal, A3.union(A3.ell([a1[0] + 1.6, a1[1] + 1.2, a1[2] + 0.2], [1.4, 3.4, 0.6]), A3.ell([a1[0] - 1.2, a1[1] - 0.9, a1[2]], [1, 1.8, 0.5])));
+    } else if (cls === "rogue") {
+      // a deep red hood and a short cape, a scarf over the mouth, dark leather with straps and pouches,
+      // a dagger held low
+      add("head", M.hair, hair(35));
+      add("head", M.cloth, A3.custom([0, 37, -1, 10], (p) => {
+        const shell = Math.max(sdEllipsoid(p, [0, 40.2, -0.7], [6.6, 7, 6.8]), -sdEllipsoid(p, [0, 40.2, -0.7], [5.95, 6.4, 6.2]));
+        const open = sdEllipsoid(p, [0, 38.6, 5.4], [4.4, 5, 4.4]);
+        return Math.max(Math.min(shell, sdCone(p, [0, 35, -1.4], [0, 31.4, -2], 6.4, 8.2) + 0.2), -open, 30 - p[1]);
+      }));
+      add("head", M.cloth, A3.cone([0, 41.5, -6.2], [0, 35.6, -8.8], 1.8, 0.4));
+      add("head", M.dleather, A3.custom([0, 35.8, 3, 6], (p) => Math.max(sdEllipsoid(p, [0, 36.6, 0.6], [5.7, 3.4, 5.4]), 34 - p[1], p[1] - 37.4)));
+      add("cloak", M.cloth, A3.custom([0, 22, -2, 11], (p) => Math.max(capeD(p, 31.8, 6.8, 9, 0.4), 15 - p[1])));
+      add("torso", M.leather, A3.cone([6, 31.6, 3.8], [-5.6, 21.4, 4.2], 0.55, 0.55));
+      add("pelvis", M.leather, A3.ell([4.6, 19.6, 3.3], [1.4, 1.7, 1.1]));
+      add("pelvis", M.leather, A3.ell([-4.6, 19.6, 3.3], [1.4, 1.7, 1.1]));
+      // a dagger held in a reverse grip, the blade down along the forearm's line
+      const hr2 = hands.R;
+      add("weapon", M.metal, A3.cone([hr2[0] - 0.2, hr2[1] - 1.4, hr2[2] - 0.2], [hr2[0] - 0.8, hr2[1] - 6.4, hr2[2] - 2.4], 0.75, 0.3));
+      add("weapon", M.dark, A3.cone([hr2[0] + 1.3, hr2[1] - 1.2, hr2[2] + 0.2], [hr2[0] - 1.7, hr2[1] - 1.4, hr2[2] - 0.6], 0.5, 0.5));
+    } else {
+      // an antlered hood with a wide opening, a cloak around the shoulders, a leather tunic with a strap
+      // and a pouch, a crook staff with leaves
+      add("head", M.hair, hair(35));
+      add("head", M.hair, A3.cone([0, 35.4, 4.7], [0, 33.4, 5.2], 3.2, 2));
+      add("head", M.cloth, A3.custom([0, 37, -1, 10], (p) => {
+        const shell = Math.max(sdEllipsoid(p, [0, 40.2, -0.7], [6.7, 7.1, 6.9]), -sdEllipsoid(p, [0, 40.2, -0.7], [5.95, 6.4, 6.2]));
+        const open = sdEllipsoid(p, [0, 38.8, 5.4], [4.6, 5.4, 4.6]);
+        return Math.max(Math.min(shell, sdCone(p, [0, 35, -1.4], [0, 31.4, -2], 6.4, 8.2) + 0.2), -open, 30 - p[1]);
+      }));
+      for (const k of [1, -1]) add("head", M.white, A3.union(A3.cone([3.6 * k, 45.2, -0.4], [6.2 * k, 47.6, -1], 0.6, 0.45), A3.cone([4.9 * k, 46.4, -0.7], [4.5 * k, 47.9, -0.6], 0.45, 0.4), A3.cone([6.2 * k, 47.6, -1], [8 * k, 47.6, -1.4], 0.45, 0.4)));
+      // fur round the hood's opening
+      add("head", M.fur, A3.custom([0, 38.8, 4, 7.5], (p) => Math.max(Math.abs(sdEllipsoid(p, [0, 38.8, 5.4], [4.9, 5.7, 4.9])) - 0.65, sdEllipsoid(p, [0, 40.2, -0.7], [7.3, 7.7, 7.5]), -sdEllipsoid(p, [0, 40.2, -0.7], [5.8, 6.2, 6]), 31 - p[1])));
+      add("torso", M.leaf, A3.ell([0, 32.3, 4.1], [1.1, 0.8, 0.6]));
+      add("torso", M.boot, A3.cone([-5.8, 32, 3.9], [5.8, 21, 4.3], 0.55, 0.55));
+      add("pelvis", M.leather, A3.ell([-4.6, 19.4, 3.3], [1.3, 1.6, 1.1]));
+      add("cloak", M.cloth, A3.custom([0, 17, -1, 14], (p) => capeD(p, 32, 7.4, 10.4, 0.6)));
+      // a leaf of light floating over the raised left palm
+      add("shield", M.glow, A3.ell([hands.L[0], hands.L[1] + 2.4, hands.L[2] + 0.3], [1.2, 1.4, 1]));
+      add("cloak", M.leather, A3.custom([0, 4, -1, 12], (p) => capeTrim(p, 32, 7.4, 10.4, 0.6)));
+      add("head", M.cloth, A3.cone([0, 41.5, -6.2], [0, 35.8, -8.6], 1.8, 0.4));
+      add("torso", M.boot, A3.cone([5.8, 32, 3.9], [-5.8, 21, 4.3], 0.6, 0.6));
+      add("pelvis", M.leather, A3.ell([4.6, 19.4, 3.3], [1.6, 1.9, 1.2]));
+      add("weapon", M.wood, A3.union(A3.cone([RX(-10.6), 0.6, 1.4], [RX(-10.4), 44, 1.4], 0.9, 0.85), A3.cone([RX(-10.4), 44, 1.4], [RX(-11.6), 47.6, 1.4], 0.85, 0.75), A3.cone([RX(-11.6), 47.6, 1.4], [RX(-13.8), 48, 1.4], 0.75, 0.65), A3.cone([RX(-13.8), 48, 1.4], [RX(-14.4), 45.6, 1.4], 0.65, 0.6)));
+      add("weapon", M.leaf, A3.union(A3.ell([RX(-10), 44.6, 2.4], [1.1, 0.7, 0.9]), A3.ell([RX(-11.2), 43.4, 0.4], [1, 0.7, 0.9])));
+    }
+    const iris = M.eye.tones[0];
+    Object.assign(joints, { weapon: hands.R, shield: hands.L });
+    return { cls, parts: P, M, joints, headRot: POSE.head || null, faceStyle: POSE.face || {}, face: { white: "#f2ede4", iris, irisDark: mix(iris, "#000000", 0.45), brow: cls === "wizard" ? M.white.tones[1] : mix(M.hair.tones[1], "#000000", 0.25), lip: M.lip.tones[0] } };
+  }
+  // a fold ripple on cloth: a small sine around the vertical axis, stronger towards the hem
+  function clothD(d, p, amp) {
+    const a = Math.atan2(p[0], p[2]), down = a3Clamp01((24 - p[1]) / 22);
+    return d + Math.sin(a * 9) * amp * down;
+  }
+  // a cape or cloak: a thin shell of a cone from the shoulders down, open in front of `front` (z)
+  function capeD(p, top, rTop, rHem, front) {
+    const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 10, -2.6], rTop, rHem)) - 0.55;
+    return clothD(Math.max(shell, p[2] - front, p[1] - top - 1.2), p, 0.45);
+  }
+  // a band along a cape's hem
+  function capeTrim(p, top, rTop, rHem, front) {
+    const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 10, -2.6], rTop, rHem)) - 0.75;
+    return Math.max(shell, p[2] - front, Math.abs(p[1] - 11.3) - 0.9);
+  }
+  // ---- render one direction
+  // a joint (character space) on the screen, in sprite pixels: [x, y]
+  function a3Project(dir, l) {
+    const yaw = A3_YAW[dir] * Math.PI / 180, cy = Math.cos(yaw), sy = Math.sin(yaw), ct = Math.cos(A3_TILT), st = Math.sin(A3_TILT);
+    const w = [(l[0] * cy + l[2] * sy) * A3_SCALE, l[1] * A3_SCALE, (-l[0] * sy + l[2] * cy) * A3_SCALE];
+    return [w[0] + A3_N / 2, A3_N - A3_FLOOR - (w[1] * ct - w[2] * st)];
+  }
+  // opts.only: render one part alone; opts.mask: only the pixels marked 1; opts.raw: return the cells
+  // (part, material, tone, depth) without lines, clean-up or face
+  function a3Render(fig, dir, opts = {}) {
+    const N = A3_N, yaw = A3_YAW[dir] * Math.PI / 180, cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const ct = Math.cos(A3_TILT), st = Math.sin(A3_TILT);
+    // camera: screen x = world x, screen up = (0, cos t, -sin t), towards the viewer = (0, sin t, cos t)
+    const toLocal = (w) => [w[0] * cy - w[2] * sy, w[1], w[0] * sy + w[2] * cy];
+    if (!fig.groups) {
+      const by = new Map();
+      for (const pr of fig.parts) (by.get(pr.part) || by.set(pr.part, []).get(pr.part)).push(pr);
+      fig.groups = [...by.values()].map((list) => {
+        const c = [0, 1, 2].map((k) => list.reduce((t, s) => t + s.b[k], 0) / list.length);
+        return { list, b: [...c, Math.max(...list.map((s) => vLen(vSub(c, s.b)) + s.b[3]))] };
+      });
+    }
+    const groups = opts.only ? fig.groups.filter((g) => g.list[0].part === opts.only) : fig.groups;
+    const scene = (q) => {
+      let best = Infinity, hit = null;
+      for (const g of groups) {
+        if (Math.hypot(q[0] - g.b[0], q[1] - g.b[1], q[2] - g.b[2]) - g.b[3] > best) continue;
+        for (const pr of g.list) {
+        const b = pr.b, db = Math.hypot(q[0] - b[0], q[1] - b[1], q[2] - b[2]) - b[3];
+        if (db > best) continue;
+        const d = pr.d(q);
+        if (d < best) {
+          best = d;
+          hit = pr;
+        }
+        }
+      }
+      return [best, hit];
+    };
+    const L = vNorm([-0.55, 0.62, 0.56]), V = [0, 0, 1];
+    const SS = 2, cells = [];
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      if (opts.mask && !opts.mask[j * N + i]) {
+        cells.push(null);
+        continue;
+      }
+      const samples = [];
+      for (let a = 0; a < SS; a++) for (let b = 0; b < SS; b++) {
+        const sx = i + (a + 0.5) / SS - N / 2, syv = N - A3_FLOOR - (j + (b + 0.5) / SS);
+        // a point far towards the viewer on this pixel's ray, then march away from the viewer
+        let w = [sx, syv * ct + 60 * st, -syv * st + 60 * ct], t = 0, res = null;
+        const dir2 = [0, -st, -ct];
+        // start where the ray enters the figure's sphere (centre at hip height), or skip it
+        {
+          const oc = [w[0], w[1] - 24, w[2]], bq = vDot(oc, dir2), cq = vDot(oc, oc) - 31 * 31, disc = bq * bq - cq;
+          if (disc < 0) continue;
+          const t0 = Math.max(0, -bq - Math.sqrt(disc));
+          w = [w[0], w[1] + dir2[1] * t0, w[2] + dir2[2] * t0];
+          t = t0;
+        }
+        for (let k = 0; k < 90; k++) {
+          const q = toLocal(w).map((v) => v / A3_SCALE), [d0, pr] = scene(q), d = d0 * A3_SCALE;
+          if (d < 0.04) {
+            res = { pr, q, t };
+            break;
+          }
+          t += Math.max(d * 0.9, 0.05);
+          w = [w[0], w[1] + dir2[1] * Math.max(d * 0.9, 0.05), w[2] + dir2[2] * Math.max(d * 0.9, 0.05)];
+          if (t > 130) break;
+        }
+        if (!res) continue;
+        // the normal of the shape that was hit, turned into camera space
+        const e = 0.05, f = res.pr.d, q = res.q;
+        const nl = vNorm([f([q[0] + e, q[1], q[2]]) - f([q[0] - e, q[1], q[2]]), f([q[0], q[1] + e, q[2]]) - f([q[0], q[1] - e, q[2]]), f([q[0], q[1], q[2] + e]) - f([q[0], q[1], q[2] - e])]);
+        const nw = [nl[0] * cy + nl[2] * sy, nl[1], -nl[0] * sy + nl[2] * cy];
+        const n = [nw[0], nw[1] * ct - nw[2] * st, nw[1] * st + nw[2] * ct];
+        const m = res.pr.mat, lam = Math.max(0, vDot(n, L));
+        // a contrast curve: deeper shadows on the far side, brighter faces towards the light
+        let v = 0.1 + 0.95 * Math.pow(lam, 0.85);
+        if (m.kind === "metal") {
+          const r = [2 * vDot(n, L) * n[0] - L[0], 2 * vDot(n, L) * n[1] - L[1], 2 * vDot(n, L) * n[2] - L[2]], spec = Math.pow(Math.max(0, vDot(r, V)), 14);
+          v = 0.08 + 0.85 * lam + (spec > 0.45 ? 0.5 : 0);
+        }
+        if (m.kind === "glow") v = 0.62 + 0.5 * lam;
+        if (m.kind === "skin") v = 0.42 + 0.64 * lam;
+        if (m.tex) v += (a3Hash(q) - 0.5) * m.tex;
+        const tone = v < 0.28 ? 0 : v < 0.48 ? 1 : v < 0.7 ? 2 : v < 0.9 ? 3 : 4;
+        samples.push({ part: res.pr.part, mat: m, tone, depth: res.t });
+      }
+      if (samples.length < 2) {
+        cells.push(null);
+        continue;
+      }
+      // the pixel takes the part seen most; its tone is the middle of that part's samples
+      const count = {};
+      for (const s of samples) count[s.part] = (count[s.part] || 0) + 1;
+      const part = Object.keys(count).sort((a, b) => count[b] - count[a])[0], mine = samples.filter((s) => s.part === part);
+      const mats = new Map();
+      for (const s of mine) mats.set(s.mat, (mats.get(s.mat) || 0) + 1);
+      const mat = [...mats].sort((a, b) => b[1] - a[1])[0][0], tones = mine.filter((s) => s.mat === mat).map((s) => s.tone).sort((a, b) => a - b);
+      cells.push({ part, mat, tone: tones[tones.length >> 1], depth: mine.reduce((t, s) => t + s.depth, 0) / mine.length });
+    }
+    if (opts.raw) return cells;
+    // dark lines: where a part passes in front of another (much deeper behind it), its edge darkens
+    const out = cells.map((c) => c && { ...c });
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const c = cells[j * N + i];
+      if (!c) continue;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const I = i + di, J = j + dj, o = I >= 0 && J >= 0 && I < N && J < N ? cells[J * N + I] : null;
+        if (o && o.part !== c.part && o.depth > c.depth + 1) out[j * N + i].tone = 0;
+        else if (o && o.mat !== c.mat && o.depth > c.depth + 0.5 && c.mat.kind !== "flat" && c.mat.kind !== "glow") out[j * N + i].tone = Math.min(out[j * N + i].tone, 1);
+      }
+    }
+    a3Clean(out);
+    const px = out.map((c) => c ? { part: c.part, colour: c.mat.tones[c.tone], depth: c.depth } : null);
+    // a glow lights the pixels around it
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      if (px[j * N + i]) continue;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const o = out[(j + dj) * N + i + di];
+        if (i + di >= 0 && i + di < N && j + dj >= 0 && j + dj < N && o && o.mat.kind === "glow" && !px[j * N + i]) px[j * N + i] = { part: o.part, colour: o.mat.tones[3] };
+      }
+    }
+    a3Face(fig, cells, px, { cy, sy, ct, st });
+    return px;
+  }
+  // pixel clean-up: drop lone pixels, fill one-pixel holes, and even out a tone that differs from all
+  // four neighbours of the same material when they agree
+  function a3Clean(cells) {
+    const N = A3_N, at = (i, j) => i >= 0 && j >= 0 && i < N && j < N ? cells[j * N + i] : null, D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const copy = cells.slice();
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const c = copy[j * N + i], nb = D.map(([a, b]) => copy[(j + b) * N + i + a] && i + a >= 0 && i + a < N && j + b >= 0 && j + b < N ? copy[(j + b) * N + i + a] : null);
+      if (c && nb.every((n) => !n)) cells[j * N + i] = null;
+      else if (!c) {
+        const full = nb.filter(Boolean);
+        if (full.length >= 3 && full.every((n) => n.part === full[0].part)) cells[j * N + i] = { ...full[0] };
+      } else {
+        const same = nb.filter((n) => n && n.mat === c.mat);
+        if (same.length === 4 && same.every((n) => n.tone === same[0].tone) && same[0].tone !== c.tone && Math.abs(same[0].tone - c.tone) === 1) cells[j * N + i] = { ...c, tone: same[0].tone };
+      }
+    }
+  }
+  // the face, drawn as exact pixels where the 3D head puts it, in the class's expression: brows (flat,
+  // angry, one raised, bushy), eyes (open, narrowed, closed), a mouth (line, smirk, shout), and marks (a
+  // scar, war paint, a leaf). A feature is drawn only where it faces the camera and the head's skin is
+  // what is seen there (not a helmet, hood or beard in front of it). A closed helm shows glowing eyes.
+  function a3Face(fig, cells, px, { cy, sy, ct, st }) {
+    const N = A3_N, F = fig.face, S = fig.faceStyle || {}, hr = fig.headRot;
+    if (!F) return;
+    const toWorld = (l) => [(l[0] * cy + l[2] * sy) * A3_SCALE, l[1] * A3_SCALE, (-l[0] * sy + l[2] * cy) * A3_SCALE];
+    const project = (l0) => {
+      const l = a3HeadXf(l0, hr), w = toWorld(l), up = w[1] * ct - w[2] * st;
+      return { i: Math.floor(w[0] + N / 2), j: Math.floor(N - A3_FLOOR - up), depth: 60 - (w[1] * st + w[2] * ct) };
+    };
+    // how much a point on the head (from the skull's centre) faces the camera
+    const facing = (l) => {
+      const n = toWorld(vNorm(vSub(a3HeadXf(l, hr), a3HeadXf([0, 39.4, 0.2], hr))));
+      return n[1] * st + n[2] * ct;
+    };
+    const cellAt = (q) => q.i >= 0 && q.j >= 0 && q.i < N && q.j < N ? cells[q.j * N + q.i] : null;
+    const seen = (q, mat = fig.M.skin) => {
+      const c = cellAt(q);
+      return c && c.part === "head" && c.mat === mat && Math.abs(c.depth - q.depth) < 1.6;
+    };
+    const put = (i, j, colour) => {
+      if (i >= 0 && j >= 0 && i < N && j < N && px[j * N + i]) px[j * N + i] = { part: "head", colour };
+    };
+    const lid = mix(fig.M.skin.tones[0], "#000000", 0.25);
+    for (const k of [-1, 1]) {
+      const at = [2.2 * k, 39.4, 5], f = facing(at), q = project(at);
+      if (S.glow) {
+        // eyes glowing in the visor's slit
+        const g = project([2.2 * k, 39.6, 6.6]);
+        if (f > 0.15 && seen(g, fig.M.dark)) {
+          put(g.i, g.j, "#e8f6ff");
+          if (f > 0.55) put(g.i + (k > 0 ? -1 : 1) * (Math.sign(project([0, 39.6, 6.6]).i - g.i) || 1), g.j, "#9fd8ff");
+        }
+        continue;
+      }
+      if (f < 0.2 || !seen(q)) continue;
+      // which side of the eye is towards the nose, on screen
+      const nose = project([0, 39.4, 5.6]), inward = Math.sign(nose.i - q.i) || -k, wide = f > 0.55;
+      const iI = inward > 0 ? q.i + 1 : q.i, oI = inward > 0 ? q.i : q.i + 1;
+      if (S.eyes === "closed") {
+        // a closed eye: a lid line that curves down at its ends
+        put(q.i, q.j + 1, lid);
+        if (wide) put(q.i + 1, q.j + 1, lid);
+        put(oI, q.j, fig.M.skin.tones[2]);
+      } else if (S.eyes === "narrow") {
+        put(q.i, q.j, lid);
+        if (wide) put(q.i + 1, q.j, lid);
+        put(iI, q.j + 1, F.iris);
+        if (wide) put(oI, q.j + 1, F.irisDark);
+      } else if (wide) {
+        put(oI, q.j, F.white);
+        put(iI, q.j, F.iris);
+        put(oI, q.j + 1, F.irisDark);
+        put(iI, q.j + 1, F.iris);
+      } else {
+        put(q.i, q.j, F.iris);
+        put(q.i, q.j + 1, F.irisDark);
+      }
+      // brows
+      const b = project([2.2 * k, 41.3, 5]), raised = S.brows === "raised" && k > 0 ? -1 : 0;
+      if (seen(b) || seen({ ...b, j: b.j + 1 })) {
+        const cols = wide ? [0, 1] : [0];
+        for (const di of cols) {
+          const inner = (inward > 0) === (di === 1);
+          const dj = S.brows === "angry" ? (inner ? 1 : 0) : S.brows === "bushy" ? (inner ? 0 : 1) : 0;
+          put(b.i + di, b.j + dj + raised, F.brow);
+        }
+        if (S.brows === "bushy" && wide) put(inward > 0 ? b.i - 1 : b.i + 2, b.j + 1, F.brow);
+      }
+      // war paint: a stripe down through the eye, from brow to cheek
+      if (S.paint) for (const dj of [-1, 2, 3]) put(oI, q.j + dj, "#b0302a");
+    }
+    // the mouth
+    const mAt = [0, 35.8, 5.3], m = project(mAt), mf = facing(mAt);
+    if (S.mouth !== "none" && mf > 0.25 && seen(m)) {
+      const side = Math.sign(project([1, 35.8, 5.3]).i - m.i) || 1;
+      if (S.mouth === "shout") {
+        // an open, shouting mouth: teeth along the top
+        const dark = mix(F.lip, "#000000", 0.5);
+        put(m.i, m.j, "#efe6d6");
+        put(m.i, m.j + 1, dark);
+        if (mf > 0.6) put(m.i - 1, m.j, "#efe6d6"), put(m.i - 1, m.j + 1, dark);
+      } else {
+        put(m.i, m.j, F.lip);
+        if (mf > 0.6) put(m.i - 1, m.j, F.lip);
+        // a smirk: one corner (the character's left) lifts
+        if (S.mouth === "smirk") put(m.i + side, m.j - 1, F.lip);
+      }
+    }
+    // a scar across the left cheek
+    if (S.scar) {
+      const c = project([3, 38, 4.8]);
+      if (facing([3, 38, 4.8]) > 0.3 && seen(c)) {
+        const sc = mix(fig.M.skin.tones[1], "#9a3a3a", 0.45);
+        put(c.i, c.j, sc);
+        put(c.i + 1, c.j + 1, sc);
+      }
+    }
+    // a leaf mark on the forehead
+    if (S.mark) {
+      const c = project([0, 42.3, 5.3]);
+      if (facing([0, 42.3, 5.3]) > 0.3 && seen(c)) {
+        put(c.i, c.j, "#4f9a3a");
+        put(c.i, c.j + 1, "#3c7a2c");
+      }
+    }
+  }
+
   // src/generators/creature.js
   function genCreature(N, rs, rc) {
     const hw = N / 2;
@@ -4379,7 +4977,7 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       const fixed = old && old.auto === false;
       bones[id] = { parent, pivot: fixed ? old.pivot.slice() : suggestPivot(seg2, id, parent), auto: !fixed };
     }
-    const rig = { bones, order: [], bleed: prev ? prev.bleed : 2, ...prev && prev.keepUnassigned ? { keepUnassigned: true } : {} };
+    const rig = { bones, order: [], bleed: prev ? prev.bleed : 2, ...prev && prev.keepUnassigned ? { keepUnassigned: true } : {}, ...prev && prev.fromModel ? { fromModel: true } : {} };
     try {
       treeOrder(rig);
     } catch (e) {
@@ -4682,7 +5280,21 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       }
       if (best >= 0) owner[i] = ids[best];
     }
-    return { px, work: out, stats: { bleedPixels: shows[RING], holePixels: shows[HOLE], backPixels: shows[BACK], swapPixels: shows[SWAP], smearPixels: shows[SMEAR], drawn, clipped, owner, snapped, made } };
+    const stats = { bleedPixels: shows[RING], holePixels: shows[HOLE], backPixels: shows[BACK], swapPixels: shows[SWAP], smearPixels: shows[SMEAR], drawn, clipped, owner, snapped, made };
+    // a character made from a model knows its legs where a robe or a cape hides them
+    if (rig.fromModel) stats.feet = legLow(L, W, N);
+    return { px, work: out, stats };
+  }
+  // the row of the lowest leg pixel, hidden pixels included (-1 without legs)
+  function legLow(L, W, N) {
+    const S = L.size, B = S / N;
+    let y = -1;
+    for (const id of Object.keys(L.layers)) {
+      const lay = L.layers[id], M = W[id];
+      if (!M || !isLeg(id)) continue;
+      for (const t of lay.ts.concat(lay.hole ? lay.hole.ts : [])) y = Math.max(y, apply(M, [t % S + 0.5, (t / S | 0) + 0.5])[1]);
+    }
+    return y < 0 ? -1 : Math.floor(y / B);
   }
 
   // src/rig/anim.js
@@ -4942,16 +5554,20 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
       { t: 7, ease: "easeInOut", pose: pose(rig, { ...arm(10, 6), torso: -2 * F, thighL: 2 * F, thighR: -2 * F }) }
     ] };
   }
+  var HELD_ITEM = /^(weapon|shield)$/;
   var isLeg = (id) => /^(foot|shin)[LR]$/.test(id || "");
   function groundRow(px, N, owner = null) {
     let all = -1, legs = -1;
+    // with no leg in sight, the lowest pixel stands in for the feet; a held weapon or shield does not
     for (let i = px.length - 1; i >= 0 && legs < 0; i--) if (px[i]) {
       const y = i / N | 0;
-      if (all < 0) all = y;
+      if (all < 0 && !(owner && HELD_ITEM.test(owner[i] || ""))) all = y;
       if (owner && isLeg(owner[i])) legs = y;
     }
     return legs >= 0 ? legs : all;
   }
+  // the feet of a rendered frame: known exactly for a character made from a model, else as seen
+  var feetRow = (r, N) => r.stats && r.stats.feet != null && r.stats.feet >= 0 ? r.stats.feet : groundRow(r.px, N, r.stats && r.stats.owner);
   function bodyInfo(rest) {
     const N = rest.N;
     let top = N, bottom = -1, x0 = N, x1 = -1;
@@ -5590,9 +6206,11 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
     hero: { label: "RPG Hero", gen: genHero, fixedSize: 28 },
     // V7: a generated character with parts, joints and 8 directions, kept as an imported character
     chibi: { label: "Chibi", gen: genImported, sizeFromAsset: true, rigged: true },
+    // V7.2: a taller 48 px character rendered from a 3D figure, with a class's look, pose and face
+    adventurer: { label: "Adventurer", gen: genImported, sizeFromAsset: true, rigged: true },
     imported: { label: "Imported", gen: genImported, sizeFromAsset: true }
   };
-  var GENERATOR_VERSIONS = { character: 2, creature: 2, ship: 2, item: 2, hero: HERO_GENERATOR_VERSION, chibi: IMPORTED_GENERATOR_VERSION, imported: IMPORTED_GENERATOR_VERSION };
+  var GENERATOR_VERSIONS = { character: 2, creature: 2, ship: 2, item: 2, hero: HERO_GENERATOR_VERSION, chibi: IMPORTED_GENERATOR_VERSION, adventurer: IMPORTED_GENERATOR_VERSION, imported: IMPORTED_GENERATOR_VERSION };
   function generate(type, N, shapeSeed, colorSeed, opts2 = {}) {
     const T = TYPES[type], n = T.fixedSize || (T.sizeFromAsset && opts2.asset && opts2.asset.rest ? opts2.asset.rest.N : N);
     const s = TYPES[type].gen(n, seedRng(type + ":" + n + ":" + shapeSeed), seedRng("colour:" + colorSeed), { ...opts2, shapeSeed, colorSeed });
@@ -6870,13 +7488,13 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
 
   // src/rig/check.js
   var BODY = /* @__PURE__ */ new Set(["torso", "head", "pelvis"]);
-  function bodyPoint(px, owner, N) {
+  function bodyPoint(px, owner, N, feet = null) {
     const cols = [];
     px.forEach((c, i) => {
       if (c && BODY.has(owner[i])) cols.push(i % N);
     });
     cols.sort((a, b) => a - b);
-    return { mid: cols.length ? cols[cols.length >> 1] : null, y1: groundRow(px, N, owner) };
+    return { mid: cols.length ? cols[cols.length >> 1] : null, y1: feet != null && feet >= 0 ? feet : groundRow(px, N, owner) };
   }
   var GROUNDED = /^(idle|walk)/;
   function holes(px, N) {
@@ -6988,7 +7606,7 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
     const findings = [], N = rest.N, add = (level, code, anim2, frame, message) => findings.push({ level, code, anim: anim2, frame, message });
     const label = (a, i) => `${a} frame ${i + 1}`;
     const base = render({ rot: {}, off: {}, root: [0, 0] });
-    const restRow = groundRow(base.px, N, base.stats && base.stats.owner);
+    const restRow = feetRow(base, N);
     const palette = /* @__PURE__ */ new Set([...rest.palette, ...allowed]);
     const ctx = rigContext({ rest, rig, render, base });
     const baseStray = strayPieces(base.px, base.stats.owner || [], N).reduce((n, c) => n + c.size, 0);
@@ -7020,7 +7638,7 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
         const out = poseFindings(ctx, r, pose2, label(name, i));
         for (const f of out.filter((f2) => f2.code === "clipped" || f2.code === "proportion")) add(f.level, f.code, name, i, f.message);
         if (grounded2) {
-          const row = groundRow(px, N, st.owner);
+          const row = feetRow(r, N);
           if (row >= 0 && Math.abs(row - restRow) > tolerance) add("warning", "ground", name, i, `${label(name, i)}: the feet ${row < restRow ? "leave" : "sink below"} the ground line by ${Math.abs(row - restRow)} px.`);
           const root = pose2.root || [0, 0];
           if (prevRoot && Math.max(Math.abs(root[0] - prevRoot[0]), Math.abs(root[1] - prevRoot[1])) > 1) add("warning", "body-jump", name, i, `${label(name, i)}: the whole body jumps ${Math.max(Math.abs(root[0] - prevRoot[0]), Math.abs(root[1] - prevRoot[1]))} px from the frame before.`);
@@ -7411,7 +8029,10 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
       const r = rf.resultFor && rf.resultFor(v.dir);
       if (v.rest && v.rest.rig && r) views.push({ dir: v.dir, main: false, N: v.rest.N, ...restOf(r) });
     }
-    if (views.length > 1) out.push(...checkDirections(views));
+    // views rendered from one 3D model match by construction: a part looking shorter from behind is
+    // foreshortening, not a drawing mistake
+    const fromModel = ia.rest.rig && ia.rest.rig.fromModel && ia.views.every((v) => !v.rest || v.rest.rig && v.rest.rig.fromModel);
+    if (views.length > 1 && !fromModel) out.push(...checkDirections(views));
     return { findings: out, dirs: views.map((v) => v.dir) };
   }
   function importedSource(ctx, ia, rows, pixel) {
@@ -7920,7 +8541,7 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
     px: packPixels(r.px, r.palette, r.N),
     ...r.work ? { work: { dataUrl: r.work.dataUrl, size: r.work.size } } : {},
     ...r.seg ? { seg: serializeSeg(r.seg) } : {},
-    ...r.rig ? { rig: { bones: Object.fromEntries(Object.entries(r.rig.bones).map(([id, b]) => [id, { parent: b.parent, pivot: b.pivot.slice(), auto: b.auto !== false }])), order: r.rig.order.slice(), bleed: r.rig.bleed, ...r.rig.keepUnassigned ? { keepUnassigned: true } : {} } } : {},
+    ...r.rig ? { rig: { bones: Object.fromEntries(Object.entries(r.rig.bones).map(([id, b]) => [id, { parent: b.parent, pivot: b.pivot.slice(), auto: b.auto !== false }])), order: r.rig.order.slice(), bleed: r.rig.bleed, ...r.rig.keepUnassigned ? { keepUnassigned: true } : {}, ...r.rig.fromModel ? { fromModel: true } : {} } } : {},
     ...r.anims ? { anims: JSON.parse(JSON.stringify(r.anims)) } : {},
     ...r.art ? { art: {
       swaps: Object.fromEntries(Object.entries(r.art.swaps || {}).map(([id, list]) => [id, list.map((a) => ({ name: a.name, px: packPixels(a.px, r.palette, r.N) }))])),
@@ -8063,6 +8684,11 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
     if (g.keepUnassigned != null) {
       if (typeof g.keepUnassigned !== "boolean") return bad("invalid (unassigned pixels on purpose)");
       if (g.keepUnassigned) rig.keepUnassigned = true;
+    }
+    // V7.2: joints taken from a 3D figure (the Adventurer), not placed by hand
+    if (g.fromModel != null) {
+      if (typeof g.fromModel !== "boolean") return bad("invalid (joints from a model)");
+      if (g.fromModel) rig.fromModel = true;
     }
     try {
       treeOrder(rig);
@@ -8856,7 +9482,7 @@ The atlas JSON is shared: its meta.variants lists each variant's image and colou
       app: "Sprite Foundry",
       savedAt,
       settings,
-      generator: { type: state2.type === "chibi" && sprite3.type === "imported" ? "chibi" : sprite3.type, N: sprite3.N, shapeSeed: sprite3.seedShape, colorSeed: sprite3.seedColor, heroVersion: sprite3.type === "hero" ? HERO_GENERATOR_VERSION : null, version: GENERATOR_VERSIONS[state2.type === "chibi" && sprite3.type === "imported" ? "chibi" : sprite3.type] },
+      generator: { type: TYPES[state2.type] && TYPES[state2.type].rigged && sprite3.type === "imported" ? state2.type : sprite3.type, N: sprite3.N, shapeSeed: sprite3.seedShape, colorSeed: sprite3.seedColor, heroVersion: sprite3.type === "hero" ? HERO_GENERATOR_VERSION : null, version: GENERATOR_VERSIONS[TYPES[state2.type] && TYPES[state2.type].rigged && sprite3.type === "imported" ? state2.type : sprite3.type] },
       colours,
       sprite: { edited: !!edited2, order: sprite3.order.slice(), tags, px, tag, meta: JSON.parse(JSON.stringify(sprite3.meta)) },
       timeline: { order: timeline2.order.slice(), anims },
@@ -11339,10 +11965,14 @@ self.onmessage = async e => {
   // V7.1: the combat motion that goes with the gear (none without gear)
   var chibiCombat = (d) => d.weapon === "staff" ? { id: "cast", fps: 10 } : d.weapon !== "none" ? { id: "attack", fps: 12 } : d.offhand === "bow" ? { id: "bow", fps: 10 } : null;
   var CHIBI_EXTRA_PARTS = { shield: "shield", bow: "bow" };
-  var chibiSettings = (palette) => ({ ...DEFAULTS2, height: CHIBI_N, headroom: 0, floor: 0, resample: "exact", cleanup: false, dither: false, contrast: 0, saturation: 0, locked: palette.slice() });
-  // png(rgba, w, h) -> { bytes, base64 } and workImage(work) -> { dataUrl, size } come from the page
-  function chibiDirection(d, dir, { png, workImage: workImage2 }) {
-    const N = CHIBI_N, v = chibiView(d, dir), { px, owner, hidden } = chibiCompose(v);
+  var riggedSettings = (palette, N) => ({ ...DEFAULTS2, height: N, headroom: 0, floor: 0, resample: "exact", cleanup: false, dither: false, contrast: 0, saturation: 0, locked: palette.slice() });
+  // V7.2, shared by the generated characters: from one direction's flat picture (px), which part owns
+  // each pixel (owner), what each part has behind others (hidden), a drawing order and joints (sprite
+  // pixels), the whole imported-character record: the 1:1 conversion, parts, rig, hidden areas, the
+  // motions, and the work record of its PNG. page: { png(rgba, w, h), workImage(work) }
+  function riggedDirection({ N, px, owner, hidden, order, joints, parents = [], extraParts = {}, motions, combat = null, facing, name, page, fromModel = false, offScale = 1, unclipAll = false, settle: settleFeet = false, steady = [], slide = [], sway = {} }) {
+    // at most 64 colours (a project's limit): the least-used ones join their nearest neighbour
+    ({ px, hidden } = limitColours(px, hidden, 64));
     // every colour drawn, also those only in hidden areas (a project stores those against the palette)
     const palette = [...new Set([...px, ...Object.values(hidden).flat()].filter(Boolean))];
     const img = { width: N, height: N, data: new Uint8ClampedArray(N * N * 4) };
@@ -11351,11 +11981,12 @@ self.onmessage = async e => {
       const n = parseInt(c.slice(1), 16);
       img.data.set([n >> 16 & 255, n >> 8 & 255, n & 255, 255], i * 4);
     });
-    const mask = alphaMask(img), settings = chibiSettings(palette);
+    const mask = alphaMask(img), settings = riggedSettings(palette, N);
     const r = convertToPixelArt(img, mask, { ...settings, paletteColours: palette, place: { anchor: "bottom", offsetX: 0, offsetY: 0 } });
     const S = r.work.size, B = S / N, rgba = workToRGBA(r.work);
-    // parts: each work pixel belongs to the part drawn in front at its sprite pixel
-    const parts = [...DEFAULT_PARTS.map((p) => ({ ...p, missing: !v.layers[p.id] })), ...Object.entries(CHIBI_EXTRA_PARTS).filter(([id]) => v.layers[id]).map(([id, label]) => ({ id, label, missing: false, userMade: false }))];
+    const present = new Set([...owner.filter(Boolean), ...Object.keys(hidden)]);
+    // parts: each work pixel belongs to the part seen at its sprite pixel
+    const parts = [...DEFAULT_PARTS.map((p) => ({ ...p, missing: !present.has(p.id) })), ...Object.entries(extraParts).filter(([id]) => present.has(id)).map(([id, label]) => ({ id, label, missing: false, userMade: false }))];
     const index = Object.fromEntries(parts.map((p, i) => [p.id, i + 1])), map = new Uint8Array(S * S);
     for (let t = 0; t < S * S; t++) {
       if (rgba[t * 4 + 3] < 128) continue;
@@ -11364,24 +11995,43 @@ self.onmessage = async e => {
     }
     const seg2 = { size: S, parts, map, extras: [] };
     const rig = syncRig(seg2);
-    for (const [id, [x, y]] of Object.entries(v.joints)) if (rig.bones[id]) rig.bones[id] = { ...rig.bones[id], pivot: [x * B, y * B], auto: false };
-    // gear hangs from its hand: the weapon from the right, a shield or bow from the left
-    for (const [id, hand] of [["weapon", "handR"], ["shield", "handL"], ["bow", "handL"]]) if (v.layers[id] && rig.bones[id]) rig.bones[id].parent = hand;
+    if (fromModel) rig.fromModel = true;
+    for (const [id, [x, y]] of Object.entries(joints)) if (rig.bones[id]) rig.bones[id] = { ...rig.bones[id], pivot: [x * B, y * B], auto: false };
+    // gear hangs from its hand, cloaks and robes from the body
+    for (const [id, parent] of parents) if (present.has(id) && rig.bones[id]) rig.bones[id].parent = parent;
     // the drawing order of the view; parts it does not draw (the weapon) stay listed, at the back
-    rig.order = [...rig.order.filter((id) => !v.order.includes(id)), ...v.order.filter((id) => rig.bones[id])];
+    rig.order = [...rig.order.filter((id) => !order.includes(id)), ...order.filter((id) => rig.bones[id])];
     const art = { swaps: {}, holes: hidden };
-    const rest = { N, palette: r.fullPalette.slice(), px: r.px.slice(), work: workImage2(r.work), settings, seg: seg2, rig, art };
+    const rest = { N, palette: r.fullPalette.slice(), px: r.px.slice(), work: page.workImage(r.work), settings, seg: seg2, rig, art };
     const L = prepareLayers(seg2, rgba, rig, art, N), anims = {};
-    const combat = chibiCombat(d);
-    for (const m of combat ? [...CHIBI_MOTIONS, combat] : CHIBI_MOTIONS) {
+    for (const m of combat ? [...motions, combat] : motions) {
       const loop = m !== combat;
-      const a = JSON.parse(JSON.stringify(buildTemplate(templateById(m.id), rest, L, { facing: FACING_OF[dir], frames: CHIBI_FRAMES, fps: m.fps, loop })));
-      // a chibi's big head stays nearly level when the body leans (it reads as falling otherwise)
+      const a = JSON.parse(JSON.stringify(buildTemplate(templateById(m.id), rest, L, { facing, frames: CHIBI_FRAMES, fps: m.fps, loop })));
+      // a big head stays nearly level when the body leans (it reads as falling otherwise)
       for (const k of a.keys) if (k.pose.rot.torso) k.pose.rot.head = Math.round(((k.pose.rot.head || 0) - k.pose.rot.torso * 0.75) * 10) / 10 || void 0;
-      anims[m.id] = JSON.parse(JSON.stringify(chibiUnclip(a, rest, L)));
+      // the presets' offsets are sized for a 32 px sprite: a bigger one moves as much, relatively
+      if (offScale !== 1) for (const k of a.keys) for (const id of Object.keys(k.pose.off || {})) k.pose.off[id] = k.pose.off[id].map((v) => Math.round(v * offScale));
+      let b2 = chibiUnclip(a, rest, L, unclipAll);
+      // held items that stay upright while the arm moves (a walking staff): after the clip fitting,
+      // which scales every turn
+      for (const id of steady) if (rig.bones[id]) for (const k of b2.keys) {
+        let t = 0;
+        for (let b = rig.bones[id].parent; b && rig.bones[b]; b = rig.bones[b].parent) t += k.pose.rot[b] || 0;
+        k.pose.rot[id] = Math.round(-t * 10) / 10;
+        if (!k.pose.rot[id]) delete k.pose.rot[id];
+      }
+      // cloth that swings a little on its own (a cape seen from behind hides the legs' motion)
+      for (const [id, amp] of Object.entries(sway)) if (rig.bones[id] && loop) for (const k of b2.keys) {
+        const v = Math.round(((k.pose.rot[id] || 0) + amp * (m.id === "idle" ? 0.5 : 1) * Math.cos(2 * Math.PI * k.t / b2.frames)) * 10) / 10;
+        if (v) k.pose.rot[id] = v;
+        else delete k.pose.rot[id];
+      }
+      if (settleFeet) b2 = riggedSettle(b2, rest, L);
+      if (slide.some((id) => rig.bones[id])) b2 = riggedSlide(b2, rest, L, slide);
+      anims[m.id] = JSON.parse(JSON.stringify(b2));
     }
     rest.anims = anims;
-    const file = png(img.data, N, N), name = `chibi-${d.shape}-${dir.toLowerCase()}.png`;
+    const file = page.png(img.data, N, N);
     const source = { name, type: "png", size: file.bytes.length, width: N, height: N, hash: bytesHash(file.bytes), bytes: file.bytes, base64: file.base64, reduced: null };
     const work = {
       source,
@@ -11392,22 +12042,110 @@ self.onmessage = async e => {
     };
     return { rest, work, rgba, layers: L, drawn: px };
   }
+  function limitColours(px, hidden, max) {
+    const count = new Map(), add = (c) => c && count.set(c, (count.get(c) || 0) + 1);
+    px.forEach(add);
+    for (const h of Object.values(hidden)) h.forEach(add);
+    if (count.size <= max) return { px, hidden };
+    const rgb = (c) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)], to = new Map();
+    const live = new Map(count);
+    while (live.size > max) {
+      const [c] = [...live].sort((a, b) => a[1] - b[1])[0], a = rgb(c);
+      let best = null, bd = Infinity;
+      for (const o of live.keys()) if (o !== c) {
+        const b = rgb(o), d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = o;
+        }
+      }
+      live.set(best, live.get(best) + live.get(c));
+      live.delete(c);
+      to.set(c, best);
+      for (const [k, v] of to) if (v === c) to.set(k, best);
+    }
+    const map = (c) => c && to.has(c) ? to.get(c) : c;
+    return { px: px.map(map), hidden: Object.fromEntries(Object.entries(hidden).map(([k, h]) => [k, h.map(map)])) };
+  }
+  function chibiDirection(d, dir, page) {
+    const v = chibiView(d, dir), c = chibiCompose(v);
+    return riggedDirection({ N: CHIBI_N, ...c, order: v.order, joints: v.joints, parents: [["weapon", "handR"], ["shield", "handL"], ["bow", "handL"]], extraParts: CHIBI_EXTRA_PARTS, motions: CHIBI_MOTIONS, combat: chibiCombat(d), facing: FACING_OF[dir], name: `chibi-${d.shape}-${dir.toLowerCase()}.png`, page });
+  }
   // V7.1: a chibi's arms are long for its 32 px box: if any frame cuts something off at the edge (an arm
   // held straight out with a bow, a sword swung wide), the arm turns are scaled down in 10% steps until
   // nothing is cut off (at most to half)
-  function chibiUnclip(a, rest, L) {
+  function chibiUnclip(a, rest, L, all = false) {
     const render = (p) => renderRig(L, rest.rig, p, { N: rest.N, palette: rest.palette, settings: rest.settings || void 0 });
     const cut = (anim2) => sampleAnim(anim2).some(({ pose: pose2 }) => Object.keys(render(pose2).stats.clipped || {}).length);
     if (!cut(a)) return a;
     for (let f = 0.9; f >= 0.5 - 1e-9; f -= 0.1) {
       const b = { ...a, keys: a.keys.map((k) => {
         const p = clonePose(k.pose);
-        for (const id of Object.keys(p.rot)) if (/^(upperArm|forearm|hand)[LR]$/.test(id)) p.rot[id] = Math.round(p.rot[id] * f * 10) / 10;
+        // (all: every turn and nudge, for a figure whose cape or staff reaches the edge)
+        for (const id of Object.keys(p.rot)) if (all || /^(upperArm|forearm|hand)[LR]$/.test(id)) p.rot[id] = Math.round(p.rot[id] * f * 10) / 10;
+        if (all) for (const id of Object.keys(p.off || {})) p.off[id] = p.off[id].map((v) => Math.round(v * f));
         return { ...k, pose: p };
       }) };
       if (!cut(b) || f < 0.55) return b;
     }
     return a;
+  }
+  // V7.2: each frame meant to stand on the ground has its lowest foot (or shin) moved onto the rest
+  // pose's ground row, measured on the rendered frame (long feet turned by the walk fool the leg sums)
+  function riggedSettle(a, rest, L) {
+    // the true lowest point of the legs (their hidden pixels too), so a robe or a cape over the legs
+    // does not decide where the ground is
+    // (measured by the render, which snaps each part to whole pixels; the rig is one made from a model)
+    const N = rest.N, low = (p) => {
+      const st = renderRig(L, rest.rig, p, { N, palette: rest.palette, settings: rest.settings || void 0 }).stats;
+      return st.feet != null ? st.feet : legLow(L, worldMatrices(rest.rig, p, L.size), N);
+    };
+    const ground = low({}), air = new Set(Object.keys(a.air || {}).map(Number));
+    if (ground < 0) return a;
+    // a key on every frame (exactly the frames it played before), so frames between keys settle too;
+    // only the frames marked as in the air (a run's flight) are left as they are
+    // (the sampled poses already carry the follow-through turns, so the keys replace it)
+    const frames = sampleAnim(a), keys = frames.map((f, i) => ({ t: i, ease: "linear", pose: clonePose(f.pose) }));
+    const { follow, ...plain } = a;
+    return { ...plain, ground: keys.map((k) => k.t).filter((t) => !air.has(t)), keys: keys.map((k) => {
+      if (air.has(k.t)) return k;
+      const p = clonePose(k.pose), y = low(p), d = y - ground;
+      if (y >= 0 && d) p.root = [p.root[0], p.root[1] - d];
+      return { ...k, pose: p };
+    }) };
+  }
+  // a long held item (a staff) that would leave the frame slides through the hand instead, in whole
+  // pixels, up to 16 of them
+  function riggedSlide(a, rest, L, ids) {
+    const N = rest.N, B = L.size / N, render = (p) => renderRig(L, rest.rig, p, { N, palette: rest.palette, settings: rest.settings || void 0 });
+    const cut = (p, id) => (render(a.smooth ? { ...p, smooth: true } : p).stats.clipped || {})[id] || 0;
+    const keys = a.follow ? sampleAnim(a).map((f, i) => ({ t: i, ease: "linear", pose: clonePose(f.pose) })) : a.keys;
+    const { follow, ...plain } = a;
+    return { ...plain, keys: keys.map((k) => {
+      const p = clonePose(k.pose);
+      for (const id of ids) {
+        if (!rest.rig.bones[id] || !cut(p, id)) continue;
+        const o = (p.off || {})[id] || [0, 0];
+        // the nearest slide (along, then across) that keeps it all in, else the one that cuts off least
+        let best = null, least = cut(p, id);
+        for (const ax of [1, 0]) for (let d = 1; d <= 16 && least; d++) for (const s of [-1, 1]) {
+          const q = clonePose(p);
+          q.off = { ...q.off || {}, [id]: ax ? [o[0], o[1] + s * d * B] : [o[0] + s * d * B, o[1]] };
+          const n = cut(q, id);
+          if (n < least) { best = q; least = n; }
+          if (!n) break;
+        }
+        if (best) Object.assign(p, best);
+        // still cut off (a crook held out sideways): tip it a little, up to 30 degrees
+        for (let d = 5; d <= 30 && least; d += 5) for (const s of [-1, 1]) {
+          const q = clonePose(p);
+          q.rot = { ...q.rot, [id]: (q.rot[id] || 0) + s * d };
+          const n = cut(q, id);
+          if (n < least) { Object.assign(p, q); least = n; break; }
+        }
+      }
+      return { ...k, pose: p };
+    }) };
   }
   // the whole character: S is the main image, the other 7 directions are views
   function chibiAsset(shapeSeed, colourSeed, page, cls = "random") {
@@ -11416,6 +12154,62 @@ self.onmessage = async e => {
     const views = {};
     for (const dir of DIRECTIONS) if (dir !== "S") views[dir] = { direction: dir, work: out[dir].work, rest: out[dir].rest, history: [] };
     return { design: d, directions: out, asset: { rest: out.S.rest, history: [], direction: "S", views, work: out.S.work } };
+  }
+  // src/generators/adv-asset.js
+  // V7.2: a generated Adventurer as an imported character with 8 directions, like the chibi: each
+  // direction is the 3D figure rendered to 48 px pixel art; every part's pixels hidden behind others are
+  // rendered too (the part alone, only there), so a limb that moves shows what was behind it; the
+  // joints are the figure's own, projected; the drawing order goes from the farthest part to the nearest.
+  var ADV_MOTIONS = [
+    { id: "idle", fps: 6 },
+    { id: "walk", fps: 10 },
+    { id: "run", fps: 12 }
+  ];
+  var ADV_PARTS = { cloak: "cloak", robe: "robe", shield: "shield" };
+  var advCombat = (cls) => cls === "wizard" || cls === "druid" ? { id: "cast", fps: 10 } : { id: "attack", fps: 12 };
+  function advDirection(fig, dir, page, name) {
+    const N = A3_N, cells = a3Render(fig, dir);
+    const px = cells.map((c) => c ? c.colour : null), owner = cells.map((c) => c ? c.part : null);
+    const hidden = {}, depth = {};
+    for (const g of fig.groups) {
+      const part = g.list[0].part, c = a3Project(dir, g.b), r = g.b[3] + 1.5;
+      // only the pixels near the part that another part covers
+      const mask = new Uint8Array(N * N);
+      let any = false;
+      for (let j = Math.max(0, Math.floor(c[1] - r)); j < Math.min(N, Math.ceil(c[1] + r)); j++) for (let i = Math.max(0, Math.floor(c[0] - r)); i < Math.min(N, Math.ceil(c[0] + r)); i++) if (owner[j * N + i] !== part) {
+        mask[j * N + i] = 1;
+        any = true;
+      }
+      const ds = cells.filter((x) => x && x.part === part).map((x) => x.depth);
+      if (any) {
+        const alone = a3Render(fig, dir, { only: part, mask, raw: true }), h = new Array(N * N).fill(null);
+        let n = 0;
+        alone.forEach((x, i) => {
+          if (x && owner[i]) {
+            h[i] = x.mat.tones[x.tone];
+            ds.push(x.depth);
+            n++;
+          }
+        });
+        if (n) hidden[part] = h;
+      }
+      if (ds.length) depth[part] = ds.reduce((a, b) => a + b, 0) / ds.length;
+    }
+    const order = Object.keys(depth).sort((a, b) => depth[b] - depth[a]);
+    const joints = Object.fromEntries(Object.entries(fig.joints).map(([id, l]) => [id, a3Project(dir, l)]));
+    return riggedDirection({ N, px, owner, hidden, order, joints, parents: [["weapon", "handR"], ["shield", "handL"], ["cloak", "torso"], ["robe", "pelvis"]], extraParts: ADV_PARTS, motions: ADV_MOTIONS, combat: advCombat(fig.cls), facing: FACING_OF[dir], name, page, fromModel: true, offScale: A3_N / 32, unclipAll: true, settle: true, steady: fig.cls === "wizard" || fig.cls === "druid" ? ["weapon", "robe"] : ["robe"], slide: ["weapon"], sway: { cloak: 4, robe: 2, ...dir === "S" || dir === "N" ? { torso: 2 } : {} } });
+  }
+  // the whole character, one direction at a time (onStep(i, dir) between them, so a page can show progress)
+  async function advAsset(cls, shapeSeed, colourSeed, page, onStep = async () => {
+  }) {
+    const fig = a3Figure(cls, shapeSeed + "/" + colourSeed), out = {};
+    for (const [i, dir] of DIRECTIONS.entries()) {
+      await onStep(i, dir);
+      out[dir] = advDirection(fig, dir, page, `adventurer-${cls}-${shapeSeed}-${dir.toLowerCase()}.png`);
+    }
+    const views = {};
+    for (const dir of DIRECTIONS) if (dir !== "S") views[dir] = { direction: dir, work: out[dir].work, rest: out[dir].rest, history: [] };
+    return { design: { cls, shape: String(shapeSeed), colour: String(colourSeed) }, directions: out, asset: { rest: out.S.rest, history: [], direction: "S", views, work: out.S.work } };
   }
   // src/ui/anim-panel.js
   var PRESET_LABEL = { idle: "idle", walk: "walk", attack: "sword attack", run: "run", jump: "jump", hurt: "hurt", death: "death" };
@@ -15908,10 +16702,10 @@ self.onmessage = async e => {
         {
           title: "Choose what to make",
           go: "#typeSeg",
-          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("Chibi", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
-          do: "Under Sprite type, click Character, Creature, Ship, Item, RPG Hero or Chibi. Under Sprite size, click a size such as 12 px or 32 px.",
+          controls: [C("Character", "#typeSeg"), C("Creature", "#typeSeg"), C("Ship", "#typeSeg"), C("Item", "#typeSeg"), C("RPG Hero", "#typeSeg"), C("Chibi", "#typeSeg"), C("Adventurer", "#typeSeg"), C("12 px", "#sizeSeg"), C("32 px", "#sizeSeg")],
+          do: "Under Sprite type, click Character, Creature, Ship, Item, RPG Hero, Chibi or Adventurer. Under Sprite size, click a size such as 12 px or 32 px.",
           expect: "The preview in the middle shows a new sprite of that type, and the Variations row at the bottom fills with others like it.",
-          watch: 'RPG Hero always uses a 28 px sprite and Chibi a 32 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak, and attack, cast or bow when its class carries gear; 8 frames each); Chibi class picks Knight, Mage, Archer and so on; its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
+          watch: 'RPG Hero always uses a 28 px sprite, Chibi a 32 px one and Adventurer a 48 px one, so the size buttons are switched off for them. Chibi makes a character with body parts and joints in all 8 directions, already moving (idle, walk, run, sneak, and attack, cast or bow when its class carries gear; 8 frames each); Chibi class picks Knight, Mage, Archer and so on; Adventurer is a taller, shaded character rendered from a 3D model in the same 8 directions (idle, walk, run, and attack or cast); its steps 4\u20137 under Image to pixel art can be edited like an imported character\'s. "Imported" is for your own image (see the image tutorial). If you have edited pixels, the app asks before changing the type or size, because the sprite is rebuilt.',
           undo: "Click the type or size you had before. If the app asked you, Cancel keeps everything as it was."
         },
         {
@@ -16176,8 +16970,10 @@ self.onmessage = async e => {
       go: "#typeSeg",
       summary: "Makes a sprite from seeds. The left column of the Sprite Foundry page.",
       items: [
-        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, Chibi, or Imported (your own image, made in Image to pixel art)." },
+        { ...C("Sprite type", "#typeSeg"), text: "Character, Creature, Ship, Item, RPG Hero, Chibi, Adventurer, or Imported (your own image, made in Image to pixel art)." },
         { ...C("Chibi", "#typeSeg"), text: "A 32 px character drawn as body parts with joints in all 8 directions (down, up, left, right and the diagonals), with idle, walk, run and sneak in every direction, 8 frames each. The seeds and variations draw a new one (hair, headwear, face, outfit, build, colours); it asks first if you changed its parts, joints or animations. The left-facing directions mirror the right-facing body; gear stays in its own hand." },
+        { ...C("Adventurer", "#typeSeg"), text: "A 48 px character rendered from a 3D model, so its 8 directions are 8 real views of one figure (shaded, with each class's own pose and face). It has body parts, joints and the hidden parts of each limb, with idle, walk, run and attack (or cast) in every direction, 8 frames each; the feet stay on the ground and a cape or robe sways. Drawing it takes a few seconds per class. The colour seed recolours it; it asks first if you changed its parts, joints or animations." },
+        { ...C("Adventurer class", "#advClass"), text: "Fighter (sword on the shoulder, cape), Paladin (closed helm, kite shield), Barbarian (fur mantle, axe), Rogue (hood, reversed dagger), Wizard (robe, staff) or Druid (antler hood, crook, glowing leaf). Fighter, Paladin, Barbarian and Rogue get attack; Wizard and Druid get cast." },
         { ...C("Chibi class", "#chibiClass"), text: "Villager, Knight (helmet, sword, shield), Mage (pointed hat, staff), Archer (bow), Rogue (dagger), Warrior (axe or sword), Zombie, or Random (picked by the shape seed). Gear hangs from its hand in the rig; with gear the chibi also gets attack (blade), cast (staff) or bow, 8 frames, in every direction." },
         { ...C("Sprite size", "#sizeSeg"), text: "12, 16, 24 or 32 px. RPG Hero is always 28 px; Imported uses the size chosen in step 3. Each frame has 2 px of room around the sprite." },
         { ...C("Outline", "#outlineSeg"), text: "Tinted, Black or None. Drawn around the figure in every frame." }
@@ -16643,6 +17439,7 @@ self.onmessage = async e => {
   ];
   var LIMITS = [
     "The 2.5D Workshop draws a flat sprite that looks isometric; it is not a 3D model. Every direction and frame is drawn by you.",
+    "Adventurer renders one 3D model from 8 sides, so its views are real; at 48 px it is shaded by rules, not painted by hand, and it does not match a hand-drawn sprite sheet. In one Druid cast frame facing left the crook is cut off at the edge.",
     "Chibi draws its own body parts in 8 directions from one design, so its back and side views are real drawings, not guesses; they are made by rules, so they look generated rather than hand-drawn. The left-facing views mirror the right-facing ones.",
     "Image rigging moves and turns the parts you assign. One image cannot show the back, the sides, or details it does not contain: add an image per direction, or paint hidden areas yourself.",
     "Background removal, Rough guess, Suggest joints, Fill automatically, the rig preflight and the frame check are helpers. They give a starting point and catch common problems; check their results.",
@@ -16860,9 +17657,18 @@ self.onmessage = async e => {
   // src/rig/preflight.js
   var PIVOT_SLACK = 2;
   var HANDS = ["handL", "handR"];
+  // V7.2: a part's hidden area (painted in step 7, or drawn by a generator) counts as the part: a cape
+  // seen in two pieces either side of the legs is one cape, a shoulder under a cloak is still on the arm
+  function withHidden(seg2, layers, id) {
+    const hole = layers.layers[id] && layers.layers[id].hole, k = partIndex(seg2, id);
+    if (!hole || !k) return seg2;
+    const map = seg2.map.slice();
+    for (const t of hole.ts) if (map[t]) map[t] = k;
+    return { ...seg2, map };
+  }
   function nearest(layer, size, [x, y]) {
     let best = Infinity;
-    for (const t of layer.ts) {
+    for (const t of layer.hole ? [...layer.ts, ...layer.hole.ts] : layer.ts) {
       const d = Math.hypot(t % size + 0.5 - x, (t / size | 0) + 0.5 - y);
       if (d < best) best = d;
     }
@@ -16902,7 +17708,7 @@ self.onmessage = async e => {
     if (!un) add("pixels", "ready", "Pixels in parts", `All ${fmt(c.character)} working pixels belong to a part.`);
     else if (rig.keepUnassigned) add("pixels", "ready", "Pixels in parts", `${fmt(un)} of ${fmt(c.character)} working pixels are unassigned on purpose: they move with the whole body and never turn.`, { step: "parts", what: "unassigned" });
     else add("pixels", "attention", "Pixels in parts", `${fmt(un)} of ${fmt(c.character)} working pixels are unassigned: they move with the whole body and never turn, so they stay behind when a limb moves. Assign them in step 4 (they are shown in pink there), or mark them as intended.`, { step: "parts", what: "unassigned" });
-    const loose = seg2.parts.map((p) => [p.id, looseParts(seg2, p.id, { bridge: 3 * B, minPx: B * B })]).filter(([, l]) => l.length);
+    const loose = seg2.parts.map((p) => [p.id, looseParts(withHidden(seg2, layers, p.id), p.id, { bridge: 3 * B, minPx: B * B })]).filter(([, l]) => l.length);
     if (!loose.length) add("pieces", "ready", "Parts in one piece", "No part has a piece cut off from the rest of it.");
     else {
       const [id, l] = loose[0], more = loose.slice(1).map(([i]) => labelOf(i)), px = Math.ceil(l[0] / (B * B));
@@ -16933,13 +17739,16 @@ self.onmessage = async e => {
       }
       const own = nearest(layers.layers[id], layers.size, b.pivot) / B;
       let par = 0, lim = PIVOT_SLACK;
-      if (b.parent) {
-        const sug = suggestPivot(seg2, id, b.parent), box = layers.layers[id].box;
+      // joints that come from a 3D figure are where the limbs really turn: the 2D guess of where two
+      // parts touch, or of what a quarter turn would open, is not a fair test of them (it is still
+      // checked that they sit on their part)
+      if (b.parent && !rig.fromModel) {
+        const sug = suggestPivot(withHidden(seg2, layers, id), id, b.parent), box = layers.layers[id].box;
         lim = Math.max(PIVOT_SLACK, Math.max(box[2] - box[0], box[3] - box[1]) / B / 4);
         par = Math.hypot(x - sug[0], y - sug[1]) / B;
       }
       if (own > PIVOT_SLACK || par > lim) far.push({ id, d: Math.max(own, par / lim * PIVOT_SLACK), own, par, parent: b.parent });
-      if (b.parent && drawn(b.parent) && !loop) {
+      if (b.parent && drawn(b.parent) && !loop && !rig.fromModel) {
         const d = comesAway(layers, id, b.parent, b.pivot);
         if (d > (rig.bleed || 0) + B) away.push({ id, d, parent: b.parent });
       }
@@ -17128,7 +17937,7 @@ self.onmessage = async e => {
   }
   function syncControls() {
     $("#dirNames").value = state.dirNames;
-    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => v === "chibi" ? state.type !== "chibi" && guardChibi("Making a chibi", makeChibi) : guardDiscard("Changing the sprite type", () => {
+    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => v === "chibi" || v === "adventurer" ? state.type !== v && guardChibi(v === "chibi" ? "Making a chibi" : "Making an adventurer", v === "chibi" ? makeChibi : makeAdventurer) : guardDiscard("Changing the sprite type", () => {
       state.type = v;
       regenerate();
       buildThumbs();
@@ -17145,8 +17954,8 @@ self.onmessage = async e => {
     }
     const fromAsset = TYPES[state.type].sizeFromAsset, fixed = TYPES[state.type].fixedSize || (fromAsset && sprite2 ? sprite2.N : 0);
     for (const b of $("#sizeSeg").children) b.disabled = !!fixed;
-    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset && state.type !== "chibi";
-    $("#sizeHint").textContent = state.type === "chibi" ? `A chibi is a ${CHIBI_N} px character in a ${CHIBI_N + 2 * PAD}\xD7${CHIBI_N + 2 * PAD} frame, drawn in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137). The seeds change the design.` : fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
+    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset && !TYPES[state.type].rigged;
+    $("#sizeHint").textContent = state.type === "adventurer" ? `An adventurer is a ${A3_N} px character in a ${A3_N + 2 * PAD}\xD7${A3_N + 2 * PAD} frame, rendered from a 3D figure in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137).` : state.type === "chibi" ? `A chibi is a ${CHIBI_N} px character in a ${CHIBI_N + 2 * PAD}\xD7${CHIBI_N + 2 * PAD} frame, drawn in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137). The seeds change the design.` : fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
     seg($("#outlineSeg"), [["tinted", "Tinted"], ["black", "Black"], ["none", "None"]], state.outline, (v) => {
       state.outline = v;
       saveState();
@@ -17200,6 +18009,7 @@ self.onmessage = async e => {
     syncOnion();
     renderLayers();
     renderChibiPanel();
+    renderAdvPanel();
   }
   function renderAnimSeg() {
     seg($("#animSeg"), timeline.order.map((n) => [n, n]), anim, (v) => {
@@ -18108,6 +18918,11 @@ self.onmessage = async e => {
   function buildThumbs() {
     const el2 = $("#thumbs");
     if (state.type === "chibi") return buildChibiThumbs(el2);
+    if (state.type === "adventurer") {
+      thumbs = [];
+      el2.replaceChildren(Object.assign(document.createElement("p"), { className: "hint", textContent: "Adventurers are drawn one at a time (each takes a few seconds): choose another class, or change the colour seed, for a new one." }));
+      return;
+    }
     if (TYPES[state.type].sizeFromAsset) {
       thumbs = [];
       const p = document.createElement("p");
@@ -18273,7 +19088,7 @@ self.onmessage = async e => {
   function bodyMeasure() {
     if (!(sprite2.type === "imported" && sprite2.rigFrame && sprite2.rigFrame.result)) return null;
     const refs = /* @__PURE__ */ new Map();
-    const at = (r) => bodyPoint(r.px, r.stats.owner, Math.sqrt(r.px.length));
+    const at = (r) => bodyPoint(r.px, r.stats.owner, Math.sqrt(r.px.length), r.stats.feet);
     return (name, i) => {
       const fr = timeline.anims[name] && timeline.anims[name].frames[i];
       if (!fr || fr.px) return null;
@@ -18648,7 +19463,7 @@ self.onmessage = async e => {
     $("#dirMain").replaceChildren(...DIRECTIONS.filter((d) => d === main || !viewOf(d)).map((d) => new Option(`${d} \xB7 ${DIRECTION_LABEL[d]}`, d)));
     $("#dirMain").value = main;
     $("#dirRemove").hidden = !curView();
-    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). ${state.type === "chibi" ? "The chibi generator drew every direction from one design; the left-facing ones are the right-facing ones mirrored, which suits its symmetric design." : "Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one."}`;
+    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). ${state.type === "adventurer" ? "The adventurer was rendered in every direction from one 3D figure; nothing is mirrored." : state.type === "chibi" ? "The chibi generator drew every direction from one design; the left-facing ones are the right-facing ones mirrored, which suits its symmetric design." : "Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one."}`;
   }
   $("#dirAddBtn").addEventListener("click", () => addDirection($("#dirAdd").value));
   $("#dirRemove").addEventListener("click", () => removeDirection(curView()));
@@ -18705,14 +19520,65 @@ self.onmessage = async e => {
     const combat = chibiCombat(built.design);
     toast(`Chibi "${built.design.shape}": ${CHIBI_CLASSES[built.design.cls].label} \xB7 8 directions \xB7 ${[...CHIBI_MOTIONS, ...combat ? [combat] : []].map((m) => m.id).join(", ")}`);
   }
-  var reseed = () => state.type === "chibi" ? makeChibi() : regenerate(true);
+  var reseed = () => state.type === "chibi" ? makeChibi() : state.type === "adventurer" ? makeAdventurer() : regenerate(true);
+  // V7.2: the Adventurer. Rendering 8 directions takes a while, so it runs one direction at a time with
+  // a progress note; a newer request supersedes one still running
+  var advToken = 0, advBusy = false;
+  async function makeAdventurer() {
+    const token = ++advToken, cls = state.advClass;
+    advBusy = true;
+    $("#advGroup").hidden = false;
+    try {
+      const built = await advAsset(cls, state.shape, state.color, { png: pngOf, workImage }, async (i) => {
+        $("#advInfo").textContent = `Drawing the ${A3_CLASSES[cls]}: direction ${i + 1} of 8\u2026`;
+        await new Promise((r) => setTimeout(r, 0));
+        if (token !== advToken) throw new Error("superseded");
+      });
+      if (token !== advToken) return;
+      for (const r of Object.values(built.directions)) workRGBA.set(r.rest.work.dataUrl, r.rgba);
+      importedAsset = built.asset;
+      activeDir = null;
+      state.type = "adventurer";
+      regenerate();
+      buildThumbs();
+      markProjectDirty();
+      renderVersions();
+      partsPanel.setRest(importedAsset.rest);
+      restoreWork(importedAsset.work);
+      renderDirBar();
+      if (templatePanel) templatePanel.refresh(curRest());
+      chibiChanged = false;
+      $("#advInfo").textContent = `${A3_CLASSES[cls]} \xB7 8 directions \xB7 ${[...ADV_MOTIONS, advCombat(cls)].map((m) => m.id).join(", ")}`;
+      toast(`Adventurer: ${A3_CLASSES[cls]} in 8 directions`);
+    } catch (e) {
+      if (e.message !== "superseded") throw e;
+    } finally {
+      if (token === advToken) advBusy = false;
+    }
+  }
+  function renderAdvPanel() {
+    const on = state.type === "adventurer" || advBusy;
+    $("#advGroup").hidden = !on;
+    if (!on) return;
+    const sel = $("#advClass");
+    if (!sel.options.length) sel.append(...Object.entries(A3_CLASSES).map(([k, label]) => new Option(label, k)));
+    sel.value = state.advClass;
+  }
+  $("#advClass").addEventListener("change", (e) => {
+    const v = e.target.value;
+    guardChibi("Changing the class", () => {
+      state.advClass = v;
+      saveState();
+      makeAdventurer();
+    });
+  });
   function guardChibi(label, action) {
-    if (hasImported() && state.type !== "chibi" && label === "Making a chibi") {
+    if (hasImported() && !TYPES[state.type].rigged && label.startsWith("Making a")) {
       askGuard(`${label} replaces your imported character (its image, parts, joints and animations). Save the project first to keep it.`, action);
       return;
     }
-    if (state.type === "chibi" && chibiChanged) {
-      askGuard(`${label} draws the chibi again and loses your changes to its parts, joints, drawings and animations.`, action);
+    if (TYPES[state.type].rigged && chibiChanged) {
+      askGuard(`${label} draws the ${state.type} again and loses your changes to its parts, joints, drawings and animations.`, action);
       return;
     }
     guardDiscard(label, action);
@@ -18756,7 +19622,7 @@ self.onmessage = async e => {
   }
   var versionInUse = (rest) => (cur() && cur().history || []).find((h) => h.work && rest.work && h.work.dataUrl === rest.work.dataUrl && h.px.join() === rest.px.join());
   function partsChanged(seg2) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.seg = seg2;
@@ -18777,7 +19643,7 @@ self.onmessage = async e => {
     markProjectDirty();
   }
   function rigChanged(rig) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.rig = rig;
@@ -18797,7 +19663,7 @@ self.onmessage = async e => {
     attachRig();
   }
   function artChanged(art) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.art = art;
@@ -18881,7 +19747,7 @@ self.onmessage = async e => {
     }
   }
   function animsChanged(anims, names) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.anims = anims;
@@ -19793,6 +20659,9 @@ self.onmessage = async e => {
     },
     get animInfo() {
       return animPanel.info();
+    },
+    get advBusy() {
+      return advBusy;
     },
     get autoAnimate() {
       return autoAnimate.info();

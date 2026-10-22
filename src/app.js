@@ -150,7 +150,7 @@
   }
   function syncControls() {
     $("#dirNames").value = state.dirNames;
-    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => v === "chibi" ? state.type !== "chibi" && guardChibi("Making a chibi", makeChibi) : guardDiscard("Changing the sprite type", () => {
+    seg($("#typeSeg"), Object.entries(TYPES).map(([k, v]) => [k, v.label]), state.type, (v) => v === "chibi" || v === "adventurer" ? state.type !== v && guardChibi(v === "chibi" ? "Making a chibi" : "Making an adventurer", v === "chibi" ? makeChibi : makeAdventurer) : guardDiscard("Changing the sprite type", () => {
       state.type = v;
       regenerate();
       buildThumbs();
@@ -167,8 +167,8 @@
     }
     const fromAsset = TYPES[state.type].sizeFromAsset, fixed = TYPES[state.type].fixedSize || (fromAsset && sprite2 ? sprite2.N : 0);
     for (const b of $("#sizeSeg").children) b.disabled = !!fixed;
-    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset && state.type !== "chibi";
-    $("#sizeHint").textContent = state.type === "chibi" ? `A chibi is a ${CHIBI_N} px character in a ${CHIBI_N + 2 * PAD}\xD7${CHIBI_N + 2 * PAD} frame, drawn in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137). The seeds change the design.` : fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
+    for (const id of ["#shapeSeed", "#colorSeed", "#reshapeBtn", "#recolorBtn", "#batchBtn"]) $(id).disabled = !!fromAsset && !TYPES[state.type].rigged;
+    $("#sizeHint").textContent = state.type === "adventurer" ? `An adventurer is a ${A3_N} px character in a ${A3_N + 2 * PAD}\xD7${A3_N + 2 * PAD} frame, rendered from a 3D figure in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137).` : state.type === "chibi" ? `A chibi is a ${CHIBI_N} px character in a ${CHIBI_N + 2 * PAD}\xD7${CHIBI_N + 2 * PAD} frame, drawn in all 8 directions with its parts and joints, so it moves with the rig (Image to pixel art, steps 4\u20137). The seeds change the design.` : fromAsset ? `Imported characters use the size chosen in Image to pixel art (step 3): a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : fixed ? `${TYPES[state.type].label} always uses a ${fixed} px sprite in a ${fixed + 2 * PAD}\xD7${fixed + 2 * PAD} frame, pivot at the bottom centre.` : "Each frame gets 2 px of headroom on every side for outlines and motion.";
     seg($("#outlineSeg"), [["tinted", "Tinted"], ["black", "Black"], ["none", "None"]], state.outline, (v) => {
       state.outline = v;
       saveState();
@@ -222,6 +222,7 @@
     syncOnion();
     renderLayers();
     renderChibiPanel();
+    renderAdvPanel();
   }
   function renderAnimSeg() {
     seg($("#animSeg"), timeline.order.map((n) => [n, n]), anim, (v) => {
@@ -1130,6 +1131,11 @@
   function buildThumbs() {
     const el2 = $("#thumbs");
     if (state.type === "chibi") return buildChibiThumbs(el2);
+    if (state.type === "adventurer") {
+      thumbs = [];
+      el2.replaceChildren(Object.assign(document.createElement("p"), { className: "hint", textContent: "Adventurers are drawn one at a time (each takes a few seconds): choose another class, or change the colour seed, for a new one." }));
+      return;
+    }
     if (TYPES[state.type].sizeFromAsset) {
       thumbs = [];
       const p = document.createElement("p");
@@ -1295,7 +1301,7 @@
   function bodyMeasure() {
     if (!(sprite2.type === "imported" && sprite2.rigFrame && sprite2.rigFrame.result)) return null;
     const refs = /* @__PURE__ */ new Map();
-    const at = (r) => bodyPoint(r.px, r.stats.owner, Math.sqrt(r.px.length));
+    const at = (r) => bodyPoint(r.px, r.stats.owner, Math.sqrt(r.px.length), r.stats.feet);
     return (name, i) => {
       const fr = timeline.anims[name] && timeline.anims[name].frames[i];
       if (!fr || fr.px) return null;
@@ -1670,7 +1676,7 @@
     $("#dirMain").replaceChildren(...DIRECTIONS.filter((d) => d === main || !viewOf(d)).map((d) => new Option(`${d} \xB7 ${DIRECTION_LABEL[d]}`, d)));
     $("#dirMain").value = main;
     $("#dirRemove").hidden = !curView();
-    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). ${state.type === "chibi" ? "The chibi generator drew every direction from one design; the left-facing ones are the right-facing ones mirrored, which suits its symmetric design." : "Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one."}`;
+    $("#dirInfo").textContent = curView() ? `Steps 1\u20137 below work on direction ${shown} (${DIRECTION_LABEL[shown]}). Its animations are the rows ending in _${shown.toLowerCase()}. The main editor keeps the main image.` : `Steps 1\u20137 below work on the main image (${DIRECTION_LABEL[main]}). ${state.type === "adventurer" ? "The adventurer was rendered in every direction from one 3D figure; nothing is mirrored." : state.type === "chibi" ? "The chibi generator drew every direction from one design; the left-facing ones are the right-facing ones mirrored, which suits its symmetric design." : "Each other direction needs its own image: nothing is rotated, stretched or mirrored to make one."}`;
   }
   $("#dirAddBtn").addEventListener("click", () => addDirection($("#dirAdd").value));
   $("#dirRemove").addEventListener("click", () => removeDirection(curView()));
@@ -1727,14 +1733,65 @@
     const combat = chibiCombat(built.design);
     toast(`Chibi "${built.design.shape}": ${CHIBI_CLASSES[built.design.cls].label} \xB7 8 directions \xB7 ${[...CHIBI_MOTIONS, ...combat ? [combat] : []].map((m) => m.id).join(", ")}`);
   }
-  var reseed = () => state.type === "chibi" ? makeChibi() : regenerate(true);
+  var reseed = () => state.type === "chibi" ? makeChibi() : state.type === "adventurer" ? makeAdventurer() : regenerate(true);
+  // V7.2: the Adventurer. Rendering 8 directions takes a while, so it runs one direction at a time with
+  // a progress note; a newer request supersedes one still running
+  var advToken = 0, advBusy = false;
+  async function makeAdventurer() {
+    const token = ++advToken, cls = state.advClass;
+    advBusy = true;
+    $("#advGroup").hidden = false;
+    try {
+      const built = await advAsset(cls, state.shape, state.color, { png: pngOf, workImage }, async (i) => {
+        $("#advInfo").textContent = `Drawing the ${A3_CLASSES[cls]}: direction ${i + 1} of 8\u2026`;
+        await new Promise((r) => setTimeout(r, 0));
+        if (token !== advToken) throw new Error("superseded");
+      });
+      if (token !== advToken) return;
+      for (const r of Object.values(built.directions)) workRGBA.set(r.rest.work.dataUrl, r.rgba);
+      importedAsset = built.asset;
+      activeDir = null;
+      state.type = "adventurer";
+      regenerate();
+      buildThumbs();
+      markProjectDirty();
+      renderVersions();
+      partsPanel.setRest(importedAsset.rest);
+      restoreWork(importedAsset.work);
+      renderDirBar();
+      if (templatePanel) templatePanel.refresh(curRest());
+      chibiChanged = false;
+      $("#advInfo").textContent = `${A3_CLASSES[cls]} \xB7 8 directions \xB7 ${[...ADV_MOTIONS, advCombat(cls)].map((m) => m.id).join(", ")}`;
+      toast(`Adventurer: ${A3_CLASSES[cls]} in 8 directions`);
+    } catch (e) {
+      if (e.message !== "superseded") throw e;
+    } finally {
+      if (token === advToken) advBusy = false;
+    }
+  }
+  function renderAdvPanel() {
+    const on = state.type === "adventurer" || advBusy;
+    $("#advGroup").hidden = !on;
+    if (!on) return;
+    const sel = $("#advClass");
+    if (!sel.options.length) sel.append(...Object.entries(A3_CLASSES).map(([k, label]) => new Option(label, k)));
+    sel.value = state.advClass;
+  }
+  $("#advClass").addEventListener("change", (e) => {
+    const v = e.target.value;
+    guardChibi("Changing the class", () => {
+      state.advClass = v;
+      saveState();
+      makeAdventurer();
+    });
+  });
   function guardChibi(label, action) {
-    if (hasImported() && state.type !== "chibi" && label === "Making a chibi") {
+    if (hasImported() && !TYPES[state.type].rigged && label.startsWith("Making a")) {
       askGuard(`${label} replaces your imported character (its image, parts, joints and animations). Save the project first to keep it.`, action);
       return;
     }
-    if (state.type === "chibi" && chibiChanged) {
-      askGuard(`${label} draws the chibi again and loses your changes to its parts, joints, drawings and animations.`, action);
+    if (TYPES[state.type].rigged && chibiChanged) {
+      askGuard(`${label} draws the ${state.type} again and loses your changes to its parts, joints, drawings and animations.`, action);
       return;
     }
     guardDiscard(label, action);
@@ -1778,7 +1835,7 @@
   }
   var versionInUse = (rest) => (cur() && cur().history || []).find((h) => h.work && rest.work && h.work.dataUrl === rest.work.dataUrl && h.px.join() === rest.px.join());
   function partsChanged(seg2) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.seg = seg2;
@@ -1799,7 +1856,7 @@
     markProjectDirty();
   }
   function rigChanged(rig) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.rig = rig;
@@ -1819,7 +1876,7 @@
     attachRig();
   }
   function artChanged(art) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.art = art;
@@ -1903,7 +1960,7 @@
     }
   }
   function animsChanged(anims, names) {
-    if (state.type === "chibi") chibiChanged = true;
+    if (TYPES[state.type].rigged) chibiChanged = true;
     const rest = curRest();
     if (!rest) return;
     rest.anims = anims;
@@ -2815,6 +2872,9 @@
     },
     get animInfo() {
       return animPanel.info();
+    },
+    get advBusy() {
+      return advBusy;
     },
     get autoAnimate() {
       return autoAnimate.info();

@@ -307,6 +307,12 @@ input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-rad
         <p class="hint" id="chibiInfo"></p>
         <p class="hint">A class chooses the gear and headwear: Knight (helmet, sword, shield), Mage (pointed hat, staff), Archer (bow), Rogue (dagger), Warrior (axe or sword), Zombie, Villager. Gear moves with its hand, and a class with gear gets a combat motion (attack, cast or bow) in every direction.</p>
       </div>
+      <div class="group" id="advGroup" hidden>
+        <h2 class="label"><label for="advClass">Adventurer class</label></h2>
+        <select id="advClass"></select>
+        <p class="hint mono" id="advInfo" role="status"></p>
+        <p class="hint">A 48 px character rendered from a 3D figure in all 8 directions, with its class's look, pose and face: Fighter (sword on the shoulder), Paladin (shield forward), Barbarian (axe in both fists), Rogue (reverse-grip dagger), Wizard (leaning on his staff), Druid (a glowing leaf). It comes with idle, walk, run and attack or cast, 8 frames each. Drawing one takes a little while; the colour seed changes its colours.</p>
+      </div>
       <div class="group" id="heroGroup" hidden>
         <h2 class="label"><label for="heroClass">Class</label></h2>
         <select id="heroClass"></select>

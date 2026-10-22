@@ -1,6 +1,6 @@
 # Sprite Foundry — V7 plan (draft): richer generator, real motion, more directions
 
-Status: **V7.1 done** (Chibi classes, gear, faces, headwear). Written 2026-10-22. V6.1 (Unity cutout) is on hold.
+Status: **V7.2 Adventurer built into the app** (preview shown before publishing); V7.1 done (Chibi classes, gear, faces, headwear). Written 2026-10-22. V6.1 (Unity cutout) is on hold.
 
 ## Decisions (2026-10-22)
 1. Reference sheets: open source; used only as motion reference, no pixels copied.
@@ -34,6 +34,24 @@ Status: **V7.1 done** (Chibi classes, gear, faces, headwear). Written 2026-10-22
   7 seeds and 12 random seeds gave 0 warnings. All 14 groups pass with Godot 4.3; export baseline
   unchanged. Making a chibi now takes about 5 s.
   Known: the archer is always of normal build (a stocky one's bow left the frame when the arm was held out).
+
+- **V7.2 Adventurer (in the app)**: sprite type **Adventurer**, 48 px, rendered from a 3D model of
+  signed-distance shapes (orthographic camera tilted 22°, 8 real views, 5-tone shading, inner lines,
+  pixel-exact faces). Six classes with their own pose and face: Fighter, Paladin, Barbarian, Rogue,
+  Wizard, Druid. Each direction is stored like a chibi's (PNG 1:1, parts, joints projected from the
+  model, hidden areas from per-part renders, drawing order by depth), with idle, walk, run and attack
+  (or cast for Wizard and Druid), 8 frames each, in all 8 directions. Shared builder `riggedDirection`
+  (chibi and adventurer). New on the way: feet settled on the ground per frame from the true leg
+  position (hidden pixels too; a model-made rig reports it as `stats.feet`, which the frame check
+  uses); a staff slides in the hand rather than leave the frame; capes and robes sway; front/back
+  walks roll the hips a little; the robe is cut flat at the hem (its round end reached the frame edge).
+  The direction comparison and the "quarter turn" joint test are skipped for model-made rigs (views of
+  one model; foreshortening is not a mistake). The ground line ignores a held weapon or shield when
+  no leg is in sight. Fixed: the settle step kept `follow`, so the app applied follow-through twice.
+  Tests: `tests/adventurer.mjs` (6 classes: rows, 8 frames, frame check, walks, preflight, Godot
+  pack, save and reopen, guard). Making one takes about 8-16 s.
+  Known: Druid cast facing W, frame 4: 7 px of the crook cut off; held idle frames remain on some
+  classes; a robe hides the legs in side views, so the Wizard's walk reads as a glide there.
 
 ## The request
 1. Is the generator limited to the sprites it makes today (Character, Creature, Ship, Item, RPG Hero)?

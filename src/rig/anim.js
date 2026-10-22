@@ -255,16 +255,20 @@
       { t: 7, ease: "easeInOut", pose: pose(rig, { ...arm(10, 6), torso: -2 * F, thighL: 2 * F, thighR: -2 * F }) }
     ] };
   }
+  var HELD_ITEM = /^(weapon|shield)$/;
   var isLeg = (id) => /^(foot|shin)[LR]$/.test(id || "");
   function groundRow(px, N, owner = null) {
     let all = -1, legs = -1;
+    // with no leg in sight, the lowest pixel stands in for the feet; a held weapon or shield does not
     for (let i = px.length - 1; i >= 0 && legs < 0; i--) if (px[i]) {
       const y = i / N | 0;
-      if (all < 0) all = y;
+      if (all < 0 && !(owner && HELD_ITEM.test(owner[i] || ""))) all = y;
       if (owner && isLeg(owner[i])) legs = y;
     }
     return legs >= 0 ? legs : all;
   }
+  // the feet of a rendered frame: known exactly for a character made from a model, else as seen
+  var feetRow = (r, N) => r.stats && r.stats.feet != null && r.stats.feet >= 0 ? r.stats.feet : groundRow(r.px, N, r.stats && r.stats.owner);
   function bodyInfo(rest) {
     const N = rest.N;
     let top = N, bottom = -1, x0 = N, x1 = -1;

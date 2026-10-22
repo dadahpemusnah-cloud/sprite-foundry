@@ -37,7 +37,7 @@
     px: packPixels(r.px, r.palette, r.N),
     ...r.work ? { work: { dataUrl: r.work.dataUrl, size: r.work.size } } : {},
     ...r.seg ? { seg: serializeSeg(r.seg) } : {},
-    ...r.rig ? { rig: { bones: Object.fromEntries(Object.entries(r.rig.bones).map(([id, b]) => [id, { parent: b.parent, pivot: b.pivot.slice(), auto: b.auto !== false }])), order: r.rig.order.slice(), bleed: r.rig.bleed, ...r.rig.keepUnassigned ? { keepUnassigned: true } : {} } } : {},
+    ...r.rig ? { rig: { bones: Object.fromEntries(Object.entries(r.rig.bones).map(([id, b]) => [id, { parent: b.parent, pivot: b.pivot.slice(), auto: b.auto !== false }])), order: r.rig.order.slice(), bleed: r.rig.bleed, ...r.rig.keepUnassigned ? { keepUnassigned: true } : {}, ...r.rig.fromModel ? { fromModel: true } : {} } } : {},
     ...r.anims ? { anims: JSON.parse(JSON.stringify(r.anims)) } : {},
     ...r.art ? { art: {
       swaps: Object.fromEntries(Object.entries(r.art.swaps || {}).map(([id, list]) => [id, list.map((a) => ({ name: a.name, px: packPixels(a.px, r.palette, r.N) }))])),
@@ -180,6 +180,11 @@
     if (g.keepUnassigned != null) {
       if (typeof g.keepUnassigned !== "boolean") return bad("invalid (unassigned pixels on purpose)");
       if (g.keepUnassigned) rig.keepUnassigned = true;
+    }
+    // V7.2: joints taken from a 3D figure (the Adventurer), not placed by hand
+    if (g.fromModel != null) {
+      if (typeof g.fromModel !== "boolean") return bad("invalid (joints from a model)");
+      if (g.fromModel) rig.fromModel = true;
     }
     try {
       treeOrder(rig);

@@ -15,7 +15,7 @@
     const l = vLen(a) || 1;
     return [a[0] / l, a[1] / l, a[2] / l];
   };
-  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const a3Clamp01 = (v) => Math.max(0, Math.min(1, v));
   function sdEllipsoid(p, c, r) {
     const q = [(p[0] - c[0]) / r[0], (p[1] - c[1]) / r[1], (p[2] - c[2]) / r[2]];
     const k0 = vLen(q), k1 = Math.hypot(q[0] / r[0], q[1] / r[1], q[2] / r[2]);
@@ -24,7 +24,7 @@
   // a rounded cone between points a (radius ra) and b (radius rb): limbs, robes, staffs
   function sdCone(p, a, b, ra, rb) {
     const ba = vSub(b, a), pa = vSub(p, a), l2 = vDot(ba, ba);
-    const h = clamp01(vDot(pa, ba) / l2), r = ra + (rb - ra) * h;
+    const h = a3Clamp01(vDot(pa, ba) / l2), r = ra + (rb - ra) * h;
     return vLen([pa[0] - ba[0] * h, pa[1] - ba[1] * h, pa[2] - ba[2] * h]) - r;
   }
   function sdBox(p, c, hw, round = 0) {
@@ -40,6 +40,11 @@
   // the head is drawn larger than life (as in most game sprites): everything of the head part is scaled
   // about the neck by A3_HEAD
   var A3_HEAD = 1.12, A3_NECK = [0, 34, 0];
+  // the whole figure is drawn this much smaller than its model (about the soles), leaving room in the
+  // 48 px frame for a run's dip and lift and for weapons and capes that swing
+  var A3_SCALE = 0.84;
+  // the soles stand this far above the sprite's bottom edge: room for a dip, and for the outline
+  var A3_FLOOR = 4.5;
   // a head pose: pitch (nod, + looks down), yaw (turn, + to its left), roll (tilt, + to its left), degrees
   function a3Rot(v, hr, inverse = false) {
     let [x, y, z] = v;
@@ -139,10 +144,13 @@
     const B = (k) => M[BODY[k]] || M[k], w = BODY.w, wz = 1 + (w - 1) * 0.6, robe = !!BODY.robe, plate = !!BODY.plate, druid = cls === "druid";
     // where the right hand is: gear for it is placed relative to this
     const H = [-8.8 * w, 17, 1.1], RX = (x) => x - (8.8 * w - 8.8), LX = (x) => x + (8.8 * w - 8.8), hands = {};
+    // the rig's joints in character space: where each part turns
+    const joints = { pelvis: [0, 20.6, 0], torso: [0, 23.2, 0], head: [0, 33.4, 0], cloak: [0, 31, -2], robe: [0, 23, 0] };
     for (const s of ["R", "L"]) {
       const X = (x) => (s === "R" ? -1 : 1) * x;
       const st = POSE.stance || 1, J = { shoulder: [X(7.6 * w), 31.2, 0], elbow: [X(8.4 * w), 24.6, 0.4], wrist: [X(8.7 * w), 18.8, 0.9], hand: [X(8.8 * w), 17, 1.1], hip: [X(3 * w), 19.6, 0], knee: [X((3.2 * w) * (1 + (st - 1) * 0.7)), 10.8, 0.4], ankle: [X(3.2 * w * st), 2.6, 0], foot: [X(3.2 * w * st), 1.3, 1.1], ...POSE[s] || {} };
       hands[s] = J.hand;
+      Object.assign(joints, { ["upperArm" + s]: J.shoulder, ["forearm" + s]: J.elbow, ["hand" + s]: J.wrist, ["thigh" + s]: J.hip, ["shin" + s]: J.knee, ["foot" + s]: J.ankle });
       add("upperArm" + s, B("upper"), A3.cone(J.shoulder, J.elbow, 2.6 * w, 2.2 * w));
       add("forearm" + s, B("fore"), robe ? A3.cone(J.elbow, [J.wrist[0], J.wrist[1] - 0.3, J.wrist[2]], 2.2, 3) : A3.cone(J.elbow, J.wrist, 2.2 * w, 1.8 * w));
       add("hand" + s, B("hand"), A3.ell(J.hand, [1.7 * w, 2, 1.6 * w]));
@@ -168,7 +176,7 @@
     add("head", M.skin, A3.ell([0, 37.9, 5.6], [0.85, 1.2, 0.95]));
     const hair = (low) => A3.custom([0, 40, 0, 7], (p) => {
       // a cap over the skull: down to the brows in front, to `low` at the back
-      const front = clamp01(p[2] / 3.5), thr = low + (41.9 - low) * front;
+      const front = a3Clamp01(p[2] / 3.5), thr = low + (41.9 - low) * front;
       return Math.max(sdEllipsoid(p, [0, 39.9, -0.2], [5.85, 6.35, 5.95]), (thr - p[1]) * 0.6);
     });
     // ---- class gear and clothing
@@ -194,7 +202,7 @@
       add("pelvis", M.gold, A3.box([0, 16.8, 4.5], [0.45, 1.7, 0.3]));
       add("pelvis", M.gold, A3.box([0, 17.6, 4.5], [1.3, 0.45, 0.3]));
       // the longsword rests on the right shoulder, blade up and back past the head
-      const h = hands.R, tip = [-12.4, 44.6, -4.2], u = vNorm(vSub(tip, h));
+      const h = hands.R, tip = [-12.6, 41.6, -3.8], u = vNorm(vSub(tip, h));
       const along = (t) => [h[0] + u[0] * t, h[1] + u[1] * t, h[2] + u[2] * t];
       add("weapon", M.metal, A3.cone(along(1.6), tip, 1, 0.55));
       add("weapon", M.gold, A3.cone([h[0] - 1.9, h[1] + 1.2, h[2] - 0.4], [h[0] + 1.9, h[1] + 0.9, h[2] + 1.2], 0.6, 0.6));
@@ -212,8 +220,9 @@
       add("pelvis", M.gold, A3.cone([1.6, 22, 4.3], [2.3, 15, 5.4], 0.65, 0.55));
       // a band round the hat: a thin slice of the hat's own cone
       add("head", M.gold, A3.custom([0, 45.3, 0, 6.5], (p) => Math.max(Math.abs(sdCone(p, [0, 44.4, 0], [-0.6, 46.9, -1.3], 5.5, 2.5)) - 0.3, Math.abs(p[1] - 45.2) - 0.55)));
-      add("robe", M.cloth, A3.custom([0, 13, 0.4, 14], (p) => clothD(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.4, 9.6), p, 0.35)));
-      add("robe", M.gold, A3.custom([0, 2, 0.6, 10.5], (p) => Math.max(sdCone(p, [0, 24, 0.2], [0, 1.6, 0.6], 6.55, 9.75), Math.abs(p[1] - 2.3) - 0.7)));
+      // (cut flat at the hem: the cone's round end would reach below the feet)
+      add("robe", M.cloth, A3.custom([0, 13, 0.4, 14], (p) => Math.max(clothD(sdCone(p, [0, 24, 0.2], [0, 3.6, 0.6], 6.4, 9.4), p, 0.35), 3.6 - p[1])));
+      add("robe", M.gold, A3.custom([0, 4, 0.6, 10.5], (p) => Math.max(sdCone(p, [0, 24, 0.2], [0, 3.6, 0.6], 6.55, 9.55), Math.abs(p[1] - 4.3) - 0.7)));
       add("torso", M.gold, A3.box([0, 26.2, 4.35], [0.55, 6, 0.45], 0.2));
       // leaning on the staff: it stands through the raised right hand
       const sx = hands.R[0], sz = hands.R[2];
@@ -306,25 +315,34 @@
       add("weapon", M.leaf, A3.union(A3.ell([RX(-10), 44.6, 2.4], [1.1, 0.7, 0.9]), A3.ell([RX(-11.2), 43.4, 0.4], [1, 0.7, 0.9])));
     }
     const iris = M.eye.tones[0];
-    return { parts: P, M, headRot: POSE.head || null, faceStyle: POSE.face || {}, face: { white: "#f2ede4", iris, irisDark: mix(iris, "#000000", 0.45), brow: cls === "wizard" ? M.white.tones[1] : mix(M.hair.tones[1], "#000000", 0.25), lip: M.lip.tones[0] } };
+    Object.assign(joints, { weapon: hands.R, shield: hands.L });
+    return { cls, parts: P, M, joints, headRot: POSE.head || null, faceStyle: POSE.face || {}, face: { white: "#f2ede4", iris, irisDark: mix(iris, "#000000", 0.45), brow: cls === "wizard" ? M.white.tones[1] : mix(M.hair.tones[1], "#000000", 0.25), lip: M.lip.tones[0] } };
   }
   // a fold ripple on cloth: a small sine around the vertical axis, stronger towards the hem
   function clothD(d, p, amp) {
-    const a = Math.atan2(p[0], p[2]), down = clamp01((24 - p[1]) / 22);
+    const a = Math.atan2(p[0], p[2]), down = a3Clamp01((24 - p[1]) / 22);
     return d + Math.sin(a * 9) * amp * down;
   }
   // a cape or cloak: a thin shell of a cone from the shoulders down, open in front of `front` (z)
   function capeD(p, top, rTop, rHem, front) {
-    const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 3, -2.6], rTop, rHem)) - 0.55;
+    const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 10, -2.6], rTop, rHem)) - 0.55;
     return clothD(Math.max(shell, p[2] - front, p[1] - top - 1.2), p, 0.45);
   }
   // a band along a cape's hem
   function capeTrim(p, top, rTop, rHem, front) {
-    const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 3, -2.6], rTop, rHem)) - 0.75;
-    return Math.max(shell, p[2] - front, Math.abs(p[1] - 4.3) - 0.9);
+    const shell = Math.abs(sdCone(p, [0, top, -1.2], [0, 10, -2.6], rTop, rHem)) - 0.75;
+    return Math.max(shell, p[2] - front, Math.abs(p[1] - 11.3) - 0.9);
   }
   // ---- render one direction
-  function a3Render(fig, dir) {
+  // a joint (character space) on the screen, in sprite pixels: [x, y]
+  function a3Project(dir, l) {
+    const yaw = A3_YAW[dir] * Math.PI / 180, cy = Math.cos(yaw), sy = Math.sin(yaw), ct = Math.cos(A3_TILT), st = Math.sin(A3_TILT);
+    const w = [(l[0] * cy + l[2] * sy) * A3_SCALE, l[1] * A3_SCALE, (-l[0] * sy + l[2] * cy) * A3_SCALE];
+    return [w[0] + A3_N / 2, A3_N - A3_FLOOR - (w[1] * ct - w[2] * st)];
+  }
+  // opts.only: render one part alone; opts.mask: only the pixels marked 1; opts.raw: return the cells
+  // (part, material, tone, depth) without lines, clean-up or face
+  function a3Render(fig, dir, opts = {}) {
     const N = A3_N, yaw = A3_YAW[dir] * Math.PI / 180, cy = Math.cos(yaw), sy = Math.sin(yaw);
     const ct = Math.cos(A3_TILT), st = Math.sin(A3_TILT);
     // camera: screen x = world x, screen up = (0, cos t, -sin t), towards the viewer = (0, sin t, cos t)
@@ -337,9 +355,10 @@
         return { list, b: [...c, Math.max(...list.map((s) => vLen(vSub(c, s.b)) + s.b[3]))] };
       });
     }
+    const groups = opts.only ? fig.groups.filter((g) => g.list[0].part === opts.only) : fig.groups;
     const scene = (q) => {
       let best = Infinity, hit = null;
-      for (const g of fig.groups) {
+      for (const g of groups) {
         if (Math.hypot(q[0] - g.b[0], q[1] - g.b[1], q[2] - g.b[2]) - g.b[3] > best) continue;
         for (const pr of g.list) {
         const b = pr.b, db = Math.hypot(q[0] - b[0], q[1] - b[1], q[2] - b[2]) - b[3];
@@ -356,9 +375,13 @@
     const L = vNorm([-0.55, 0.62, 0.56]), V = [0, 0, 1];
     const SS = 2, cells = [];
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      if (opts.mask && !opts.mask[j * N + i]) {
+        cells.push(null);
+        continue;
+      }
       const samples = [];
       for (let a = 0; a < SS; a++) for (let b = 0; b < SS; b++) {
-        const sx = i + (a + 0.5) / SS - N / 2, syv = N - 1.6 - (j + (b + 0.5) / SS);
+        const sx = i + (a + 0.5) / SS - N / 2, syv = N - A3_FLOOR - (j + (b + 0.5) / SS);
         // a point far towards the viewer on this pixel's ray, then march away from the viewer
         let w = [sx, syv * ct + 60 * st, -syv * st + 60 * ct], t = 0, res = null;
         const dir2 = [0, -st, -ct];
@@ -371,7 +394,7 @@
           t = t0;
         }
         for (let k = 0; k < 90; k++) {
-          const q = toLocal(w), [d, pr] = scene(q);
+          const q = toLocal(w).map((v) => v / A3_SCALE), [d0, pr] = scene(q), d = d0 * A3_SCALE;
           if (d < 0.04) {
             res = { pr, q, t };
             break;
@@ -412,6 +435,7 @@
       const mat = [...mats].sort((a, b) => b[1] - a[1])[0][0], tones = mine.filter((s) => s.mat === mat).map((s) => s.tone).sort((a, b) => a - b);
       cells.push({ part, mat, tone: tones[tones.length >> 1], depth: mine.reduce((t, s) => t + s.depth, 0) / mine.length });
     }
+    if (opts.raw) return cells;
     // dark lines: where a part passes in front of another (much deeper behind it), its edge darkens
     const out = cells.map((c) => c && { ...c });
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
@@ -424,7 +448,7 @@
       }
     }
     a3Clean(out);
-    const px = out.map((c) => c ? { part: c.part, colour: c.mat.tones[c.tone] } : null);
+    const px = out.map((c) => c ? { part: c.part, colour: c.mat.tones[c.tone], depth: c.depth } : null);
     // a glow lights the pixels around it
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       if (px[j * N + i]) continue;
@@ -460,10 +484,10 @@
   function a3Face(fig, cells, px, { cy, sy, ct, st }) {
     const N = A3_N, F = fig.face, S = fig.faceStyle || {}, hr = fig.headRot;
     if (!F) return;
-    const toWorld = (l) => [l[0] * cy + l[2] * sy, l[1], -l[0] * sy + l[2] * cy];
+    const toWorld = (l) => [(l[0] * cy + l[2] * sy) * A3_SCALE, l[1] * A3_SCALE, (-l[0] * sy + l[2] * cy) * A3_SCALE];
     const project = (l0) => {
       const l = a3HeadXf(l0, hr), w = toWorld(l), up = w[1] * ct - w[2] * st;
-      return { i: Math.floor(w[0] + N / 2), j: Math.floor(N - 1.6 - up), depth: 60 - (w[1] * st + w[2] * ct) };
+      return { i: Math.floor(w[0] + N / 2), j: Math.floor(N - A3_FLOOR - up), depth: 60 - (w[1] * st + w[2] * ct) };
     };
     // how much a point on the head (from the skull's centre) faces the camera
     const facing = (l) => {

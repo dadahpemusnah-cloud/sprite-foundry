@@ -1,12 +1,12 @@
   // src/rig/check.js
   var BODY = /* @__PURE__ */ new Set(["torso", "head", "pelvis"]);
-  function bodyPoint(px, owner, N) {
+  function bodyPoint(px, owner, N, feet = null) {
     const cols = [];
     px.forEach((c, i) => {
       if (c && BODY.has(owner[i])) cols.push(i % N);
     });
     cols.sort((a, b) => a - b);
-    return { mid: cols.length ? cols[cols.length >> 1] : null, y1: groundRow(px, N, owner) };
+    return { mid: cols.length ? cols[cols.length >> 1] : null, y1: feet != null && feet >= 0 ? feet : groundRow(px, N, owner) };
   }
   var GROUNDED = /^(idle|walk)/;
   function holes(px, N) {
@@ -118,7 +118,7 @@
     const findings = [], N = rest.N, add = (level, code, anim2, frame, message) => findings.push({ level, code, anim: anim2, frame, message });
     const label = (a, i) => `${a} frame ${i + 1}`;
     const base = render({ rot: {}, off: {}, root: [0, 0] });
-    const restRow = groundRow(base.px, N, base.stats && base.stats.owner);
+    const restRow = feetRow(base, N);
     const palette = /* @__PURE__ */ new Set([...rest.palette, ...allowed]);
     const ctx = rigContext({ rest, rig, render, base });
     const baseStray = strayPieces(base.px, base.stats.owner || [], N).reduce((n, c) => n + c.size, 0);
@@ -150,7 +150,7 @@
         const out = poseFindings(ctx, r, pose2, label(name, i));
         for (const f of out.filter((f2) => f2.code === "clipped" || f2.code === "proportion")) add(f.level, f.code, name, i, f.message);
         if (grounded2) {
-          const row = groundRow(px, N, st.owner);
+          const row = feetRow(r, N);
           if (row >= 0 && Math.abs(row - restRow) > tolerance) add("warning", "ground", name, i, `${label(name, i)}: the feet ${row < restRow ? "leave" : "sink below"} the ground line by ${Math.abs(row - restRow)} px.`);
           const root = pose2.root || [0, 0];
           if (prevRoot && Math.max(Math.abs(root[0] - prevRoot[0]), Math.abs(root[1] - prevRoot[1])) > 1) add("warning", "body-jump", name, i, `${label(name, i)}: the whole body jumps ${Math.max(Math.abs(root[0] - prevRoot[0]), Math.abs(root[1] - prevRoot[1]))} px from the frame before.`);

@@ -13,6 +13,8 @@
     heroClass: "random",
     // V7.1: the class a Chibi is drawn as ("random": picked by the shape seed)
     chibiClass: "random",
+    // V7.2: the Adventurer's class
+    advClass: "fighter",
     heroLocks: {},
     lockColours: false,
     heroColourClass: null,
@@ -48,6 +50,7 @@
     if (SCALES.includes(saved.scale)) s.scale = saved.scale;
     if (BACKGROUNDS.includes(saved.bg)) s.bg = saved.bg;
     if (saved.heroClass === "random" || CLASS_NAMES.includes(saved.heroClass)) s.heroClass = saved.heroClass;
+    if (typeof saved.advClass === "string" && Object.prototype.hasOwnProperty.call(A3_CLASSES, saved.advClass)) s.advClass = saved.advClass;
     if (saved.chibiClass === "random" || typeof saved.chibiClass === "string" && Object.prototype.hasOwnProperty.call(CHIBI_CLASSES, saved.chibiClass)) s.chibiClass = saved.chibiClass;
     s.heroLocks = sanitizeHeroLocks(saved.heroLocks);
     if (typeof saved.lockColours === "boolean") s.lockColours = saved.lockColours;
