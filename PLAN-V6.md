@@ -1,102 +1,117 @@
 # Sprite Foundry — V6 plan (draft)
 
 Status: **draft, awaiting approval**. Written 2026-10-22.
+Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
+"Auto Animate — four-direction walk" request.
 
-## Why this plan is built from the code, not the old analysis
+## Basis
 
-The competitor analysis and the PLAN-V1…V5 documents lived in an earlier cloud container
-and were lost with it. This draft is built from:
-
-- the published app (`index.html`, version 1792629047-f3d1) — what it does today, read from the code;
-- the V5 verification done this session (`tests/run-godot-check.sh`);
-- the handoff note, which listed "Unity export, additional platforms, performance" as V6+ ideas
-  without detail.
-
-If you still have the original analysis or plan, it should override anything below.
+The original competitor analysis and the PLAN-V1…V5 documents were lost with an old cloud
+container. This plan comes from an audit of the published app (`index.html`, version
+1792629047-f3d1), done by reading its code, and from the V5 verification (`tests/run-godot-check.sh`).
+If the original analysis turns up, it overrides anything below.
 
 ## Where the app stands
 
 | Area | Today | Gap |
 |---|---|---|
-| Godot | Sheet + SpriteFrames `.tres`; **cutout scene** (rig as nodes, AnimationPlayer) — verified in Godot 4.3 in V5 | — |
-| Unity | Sheet + `.png.meta` slicing + sprite-swap AnimationClips (`src/export/unity-anim.js`) | **No cutout export.** A rigged character reaches Unity only as flat frames |
-| Aseprite | `.aseprite` export: every animation as a tag, frame times, frame data | **One flattened layer** (`#aseBtn` tooltip). Parts/layers are lost |
-| Directions | 8 directions with their own artwork, mirroring (V4) | Template motions panel wrongly says diagonals "are not supported yet" (bug, below) |
-| Tests | V5 Godot suite is in the repo | V1–V4 suites were lost; no WebKit available in cloud sessions |
+| Walk animation | Keyed rig preset: legs in opposite phase, arms against them, feet planted (`src/rig/anim.js`, template "Walk") | Makes **8 frames**; there is no one-click four-direction walk |
+| Directions | Up to 8 directions, each with its own artwork; E↔W mirroring (V4); rotation preview | Template panel wrongly says diagonals are "not supported yet" (bug) |
+| Template motions | Frames 1–64, fps, loop, preview-before-add, "add to every direction with artwork" | Undo across directions and name-clash behaviour unchecked |
+| Animation names | `walk` (main direction), `walk_n`, `walk_e`, `walk_w` | No `walk_down/up/left/right` naming for games that expect it |
+| Validation | Frame check, rig check, direction check, preflight | No per-direction frame-count, ground-contact, loop-seam or duplicate-frame checks |
+| Phaser | Sheet + Aseprite-hash atlas JSON, one frame tag per row | No runtime test; Phaser 4 compatibility [UNCERTAIN] |
+| Godot | SpriteFrames + cutout scene, verified in Godot 4.3 (V5) | — |
+| Unity | Sheet + slicing + sprite-swap clips | **No cutout export** |
+| Aseprite | `.aseprite` with tags and frame times | One flattened layer |
+| Tests | V5 Godot suite in the repo | V1–V4 suites lost; no WebKit in cloud sessions |
+| Code | One bundled 18,800-line HTML file, plain JavaScript | `src/` tree lost (81 module markers remain in the bundle) |
 
-## Proposed V6 scope
+## Rules for every stage
 
-### V6.1 — Fix the stale diagonal message (bug, small)
+- Keep the existing editor, tools, palettes, animation rows, undo/redo and exports working.
+- Reuse the existing data model, rig presets and export pipeline. No parallel engines or exporters.
+- Never fake views: front, back and side need their own artwork. No duplicated frames called a walk.
+- Each stage ends with: files changed · what works · tests run · actual results · limits · next step;
+  then commit and push to GitHub; republish the artifact when user-facing code changed.
 
-`src/ui/template-panel.js` (bundle line ~14668) always appends
-"Diagonal directions (SE, NE, NW, SW) are not supported yet." The line above it already lists
-missing directions from `DIRECTIONS`, which includes the diagonals. Remove the stale line;
-check the panel with an 8-direction character in the browser.
+## Stages
 
-### V6.2 — Unity cutout export (main item; parity with V5)
+### Stage 0: source strategy (decision)
+- **(a) Recommended:** rebuild `src/` from the bundle's module markers, plus a build step that
+  reproduces `index.html`, checked by an identical-output or identical-behaviour test.
+- (b) Edit `index.html` directly: faster to start, riskier, hard to unit-test.
 
-Same idea as the Godot cutout scene, written as Unity text assets:
+### Stage 1: baseline and quick fixes
+- Seeded export snapshots: every preset for a fixed seed, with file hashes.
+- Editor smoke tests: draw, undo/redo, palette, timeline duplicate/delete, save/open project.
+- V5 Godot suite stays green. Follow-ups: run all **seven** presets, plus a side-view character
+  with an animation that never reorders parts.
+- Fix: remove the stale "Diagonal directions … not supported yet" line (`src/ui/template-panel.js`).
+- Answer the unknowns: is "add to every direction" one undo step? What happens on a name
+  clash? Where do the walk keys fall at 12 frames?
 
-- **Prefab** (`.prefab`): a GameObject per rig part, parented like the rig; Transform at the joint;
-  child SpriteRenderer with the part picture; root at the pivot.
-- **Part sprites**: one PNG per part (reuse `cutParts` / `shareBox` from `godot-cutout.js`) with
-  `.png.meta` (pixels-per-unit, pivot, point filter) — the existing meta writer already does slicing.
-- **AnimationClip** per animation: rotation in `m_EulerCurves`, offsets in `m_PositionCurves`,
-  drawing swaps in `m_PPtrCurves`, draw order as `m_SortingOrder` float curves; an
-  **AnimatorController** listing the clips.
-- **Easing**: Unity keys are cubic Hermite curves with in/out tangents. The app's ease in (u²),
-  ease out (1−(1−u)²) and ease in-out (smoothstep) are all cubics, so each can be written
-  exactly as one key pair with the right tangents. [PLAUSIBLE — the maths is standard; that Unity's
-  default (non-weighted) tangents behave as plain Hermite needs checking in Unity.] Custom curves,
-  secondary motion and uneven frame times get a key per frame, as in Godot.
-- **Coordinate flip**: Unity is y-up; positions get y negated and rotations negated.
-- Refactor: move the shared part-cutting and key-planning out of `godot-cutout.js` into a common
-  module both exporters use, so a fix lands in both.
+### Stage 2: Auto Animate panel (four-direction walk)
+- One action: **Walk · four directions (S, N, W, E) · 12 frames · 10 fps · loop** (48 frames,
+  1.2 s loop). It wraps the existing walk template; there is no new generator.
+- Character cases:
+  - **A**, rigged image per direction: supported.
+  - **B**, a direction without its own image: listed as "needs artwork"; E↔W mirroring is
+    offered only where it is already allowed.
+  - **C**, seeded generator sprites (one view) and the 2.5D Workshop (no rig): the panel explains
+    the preparation needed instead of faking views.
+- Preview in the rotation preview first. **Apply** adds animations; a name clash asks before
+  replacing; the whole apply is one undo step. Frames stay editable in the timeline and editor.
 
-**Verification plan and its limit.** The Unity Editor cannot run in these cloud sessions (licence
-sign-in, multi-GB install) [PLAUSIBLE — not attempted]. So:
-1. Parse the generated YAML and check structure (every curve path names a real GameObject,
-   every fileID/guid resolves, key times inside clip length).
-2. A Python replay: evaluate the Hermite curves at each frame time, place the part pictures, and
-   compare against the sheet — the same silhouette/colour comparison as V5, rest pose exact.
-3. Mutation check as in V5 (rotation sign, y-flip, tangents, pivot, sorting order).
-4. **You** open the export in Unity once and play each clip. Until then it ships marked
-   "not yet opened in Unity" in its README, like the Godot pack was.
+### Stage 3: walk calibration at 12 frames
+- Pose checkpoints at frames 0/3/6/9 (contact, down, passing, up), mirrored for the second step.
+- Stable ground contact and pivot; integer pixels in the final render.
+- The loop seam (frame 11 → 0) is as smooth as any other step.
 
-### V6.3 — V5 test follow-ups (small)
+### Stage 4: validation additions (warnings in the existing frame check)
+- 12 frames per direction, 48 total, durations sum to 1.2 s; consistent frame size; correct keys and order.
+- Ground contact: the lowest opaque row is fixed; pivot unchanged; transparent background; no clipping.
+- Duplicate frames: **warn, never delete**. Loop-seam size compared with the other steps.
+- A visual-review checklist (foot sliding, limbs crossing, weak silhouettes). Automated checks
+  do not prove the walk looks natural.
 
-- A character with a **side view** and an animation that **never reorders parts**, so the static
-  draw order is exercised by pixels (V5 only caught it through the rest-pose invariant).
-- Run all **seven** animation presets through the Godot check (V5 covered idle, walk, attack).
-- Run the suite in **WebKit** on a machine where Playwright's WebKit can be installed.
+### Stage 5: export naming and Phaser runtime test
+- Export option **direction names: compass (`walk_e`) / screen (`walk_right`)**, used in atlas
+  tags, manifest, GIF and Godot/Unity names. Default stays compass, so existing users are unaffected.
+- Phaser test page (headless Chromium, Phaser from npm, pinned to your version): load the
+  exported atlas, create the four animations, play each, and assert 12 frames, 10 fps and frame order.
 
-### Deferred to V7 (listed so they are not forgotten)
+### Stage 6: Unity cutout export (large; parity with V5 Godot)
+- Move the shared part-cutting and key-planning out of `godot-cutout.js` into a common module.
+- Write a prefab (GameObject per part, parented like the rig, SpriteRenderer per part, root at
+  the pivot), part PNGs with `.png.meta`, an AnimationClip per animation (`m_EulerCurves`,
+  `m_PositionCurves`, `m_PPtrCurves` for drawing swaps, `m_SortingOrder` curves) and an AnimatorController.
+- Easing: ease in, ease out and ease in-out are cubics, so each can be written exactly with
+  Hermite tangents [PLAUSIBLE; needs one check in Unity]. Unity is y-up: negate y and rotation.
+- Verification: YAML structure check, a Python replay compared against the sheet (as in V5), and
+  mutation checks. The Unity Editor cannot run in cloud sessions [PLAUSIBLE, not attempted], so
+  **you open it once in Unity**; until then the README says "not yet opened in Unity".
 
-- **Layered `.aseprite` export** — one Aseprite layer per part instead of one flattened layer.
-  Valuable, but verifying needs Aseprite (paid) or a careful format check; the app's own
-  `.aseprite` importer in the Workshop can be the first round-trip test.
-- **Spine / DragonBones JSON** — would reach more engines, but these are large formats and a
-  separate project. [UNCERTAIN whether users of this app need them; no evidence either way.]
-- **Performance** — the page is one 902 KB file; measure load time before deciding anything.
+### Stage 7: regression and docs
+- All baselines, the V5 Godot suite, the Phaser test, the Unity checks; help text; export READMEs.
+
+## Deferred to V7
+- Layered `.aseprite` export (one layer per part).
+- Spine / DragonBones JSON [UNCERTAIN demand].
+- Performance work on the 902 KB page: measure load time first.
 
 ## Order and size (rough)
+Stage 0 medium · Stage 1 small–medium · Stages 2–5 medium (the walk feature) · Stage 6 large ·
+Stage 7 small. Stages 2–5 can ship as **V6.0**, Stage 6 as **V6.1**, so the walk does not wait on Unity.
 
-1. V6.1 diagonal message — small.
-2. V6.3 test follow-ups — small/medium; makes the V6.2 refactor safer.
-3. V6.2 Unity cutout — large: shared-module refactor, then prefab, clips, controller, tests.
+## Still owed from earlier versions (needs your machine)
+Firefox (VC++ Redistributable) · OpenCV GrabCut in the published page · save/reopen a project
+from the published page · Godot export in the Godot editor · Unity pack and Phaser packed atlas
+in their engines.
 
-Each step: change → V5 Godot suite still passes → new tests → commit and push to GitHub →
-republish the artifact.
-
-## Open checks still owed from earlier versions (need your machine)
-
-- Firefox (needs the VC++ Redistributable on your PC).
-- OpenCV GrabCut in the published page (cdnjs is blocked in cloud sessions, so it was not checked here).
-- Save a project and reopen it from the published page.
-- Godot export opened in the Godot **editor** (V5 checked it headless only).
-- Unity pack and Phaser packed atlas opened in their engines.
-
-## Decisions needed from you
-
-1. Approve this scope, or reorder it (for example layered Aseprite before Unity cutout).
-2. Do you have Unity installed, to do the one manual check V6.2 depends on?
+## Decisions needed
+1. Source strategy: (a) rebuild `src/` (recommended) or (b) edit `index.html`.
+2. Phaser version your game uses (3.x or 4.x).
+3. Do you have front, back and side artwork for the character?
+4. Naming: an export option (compass by default), or `walk_down` etc. inside the app too?
+5. Do you have Unity installed for the one manual check in Stage 6?
