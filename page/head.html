@@ -1,0 +1,1223 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<meta charset="utf-8">
+<title>Sprite Foundry</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a three-column workbench (settings | animated stage | sheet export) with a tray of seeded variations underneath */
+:root{
+  --bg:#e7eaf1; --panel:#f8f9fc; --sunk:#e0e4ed; --ink:#1b1d2c; --muted:#585d77; --line:#c8cddb;
+  --accent:#4f3fd1; --accent-ink:#ffffff; --sel:#c77d00; --err:#c92a2a; --warn:#e8a317; --ck1:#ffffff; --ck2:#e3e6ef; --grid:rgba(27,29,44,.16);
+  --scene-grass:#6aa84f; --scene-night:#1d2340; --scene-sand:#e8cf96;
+  --f-display:"Silkscreen","Courier New",monospace;
+  --f-body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#13141d; --panel:#1c1e2b; --sunk:#262939; --ink:#e9eaf4; --muted:#9da1bb; --line:#33374d;
+    --accent:#a99dff; --accent-ink:#13141d; --sel:#f2b230; --err:#ff6b6b; --warn:#f2b230; --ck1:#2a2d3e; --ck2:#222533; --grid:rgba(233,234,244,.14);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#13141d; --panel:#1c1e2b; --sunk:#262939; --ink:#e9eaf4; --muted:#9da1bb; --line:#33374d;
+  --accent:#a99dff; --accent-ink:#13141d; --sel:#f2b230; --err:#ff6b6b; --warn:#f2b230; --ck1:#2a2d3e; --ck2:#222533; --grid:rgba(233,234,244,.14);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45}
+.app{max-width:1300px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+header.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px}
+.brand canvas{width:40px;height:40px;image-rendering:pixelated}
+h1{font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:.02em;margin:0;line-height:1}
+.tagline{margin:0;color:var(--muted);max-width:60ch}
+.layout{display:grid;grid-template-columns:250px minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media (max-width:1060px){.layout{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.stage-wrap{grid-column:1/-1;order:-1}}
+@media (max-width:660px){.layout{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.group{display:flex;flex-direction:column;gap:8px;min-width:0}
+.label{font-family:var(--f-display);font-weight:400;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0}
+.seg{display:flex;flex-wrap:wrap;gap:4px}
+button,select,input[type=text]{font:inherit;color:var(--ink)}
+button{border:1px solid var(--line);background:var(--sunk);padding:6px 10px;border-radius:4px;cursor:pointer;line-height:1.2}
+button:hover{border-color:var(--accent)}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+button:disabled{opacity:.45;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+select,input[type=text]{width:100%;border:1px solid var(--line);background:var(--sunk);border-radius:4px;padding:6px 8px}
+input[type=text]{font-family:var(--f-mono);font-size:13px}
+textarea{width:100%;font-family:var(--f-mono);font-size:12px;color:var(--ink);border:1px solid var(--line);background:var(--sunk);border-radius:4px;padding:6px 8px;resize:vertical}
+.cp-swatch{width:22px;height:22px;padding:0;border-radius:3px;border:1px solid var(--line)}
+.cp-swatch:hover{outline:2px solid var(--err);outline-offset:1px}
+input[type=range]{accent-color:var(--accent);width:100%}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.seed-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 8px;align-items:center}
+.part-list{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 8px;align-items:center}
+.part-list label{font-size:13px;color:var(--muted)}
+.part-list select{padding:4px 6px;font-size:13px}
+.part-list .lock{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+.seg button:disabled{opacity:.4}
+.seed-grid label{font-size:13px;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.mono{font-family:var(--f-mono);font-size:12px;font-variant-numeric:tabular-nums}
+/* stage */
+.stage-wrap{display:flex;flex-direction:column;gap:10px;min-width:0}
+.stage-bar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.stage{position:relative;width:100%;aspect-ratio:1/1;max-height:520px;max-width:100%;margin:0 auto;border:1px solid var(--line);border-radius:6px;display:grid;place-items:center;overflow:hidden}
+.bg-checker{background-color:var(--ck1);background-image:linear-gradient(45deg,var(--ck2) 25%,transparent 25%,transparent 75%,var(--ck2) 75%),linear-gradient(45deg,var(--ck2) 25%,transparent 25%,transparent 75%,var(--ck2) 75%);background-size:20px 20px;background-position:0 0,10px 10px}
+.bg-grass{background:var(--scene-grass)} .bg-night{background:var(--scene-night)} .bg-sand{background:var(--scene-sand)}
+.stage canvas{image-rendering:pixelated;display:block}
+.file-btn{display:inline-flex;align-items:center;padding:5px 10px;border:1px solid var(--line);border-radius:6px;cursor:pointer;background:var(--btn,transparent)}
+.file-btn:focus-within{outline:2px solid var(--sel)}
+#replaceRow select{width:auto}
+.var-map{display:flex;flex-wrap:wrap;gap:4px 10px}.var-row{display:inline-flex;align-items:center;gap:4px}
+.var-from{width:18px;height:18px;border-radius:4px;border:1px solid var(--line);display:inline-block}
+.var-row input[type=color]{width:30px;height:22px;padding:0}.var-row button{padding:0 6px}
+.ramp-preview{display:inline-flex;gap:2px}.ramp-preview span{width:14px;height:14px;border-radius:3px;border:1px solid var(--line)}
+.live-preview{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.live-box{border:1px solid var(--line);border-radius:4px;padding:4px;line-height:0}
+.live-box canvas{image-rendering:pixelated;display:block}
+.stage.zoomed{display:block;overflow:auto;place-items:initial}
+.stage.pan-tool canvas{cursor:grab}
+.stage.editing canvas{cursor:crosshair;touch-action:none}
+.badge{background:var(--accent);color:var(--accent-ink);border-radius:4px;padding:2px 8px}
+.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.strip button{padding:3px;background:var(--panel);flex:0 0 auto}
+.strip button[aria-pressed="true"]{background:var(--panel);border-color:var(--sel);box-shadow:0 0 0 1px var(--sel)}
+.strip canvas{display:block;image-rendering:pixelated}
+.strip button{position:relative}
+.strip button.baked::after{content:"";position:absolute;right:2px;top:2px;width:6px;height:6px;border-radius:50%;background:var(--sel)}
+.strip button .ms{position:absolute;left:2px;bottom:1px;font-family:var(--f-mono);font-size:9px;color:var(--muted)}
+.timeline-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.timeline-bar .seg button{padding:5px 8px}
+.frame-data{margin-top:6px;border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.frame-data summary{cursor:pointer;font-weight:600}
+.frame-data .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+.field{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.field input{width:76px;font:inherit;font-family:var(--f-mono);font-size:13px;color:var(--ink);border:1px solid var(--line);background:var(--sunk);border-radius:4px;padding:5px 6px}
+.controls-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.controls-row .fps{display:flex;align-items:center;gap:8px;min-width:180px;flex:1}
+.tools{display:flex;flex-direction:column;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px}
+.swatches{display:flex;flex-wrap:wrap;gap:4px}
+.swatches button{width:26px;height:26px;padding:0;border-radius:3px;border:1px solid var(--line)}
+.swatches button[aria-pressed="true"]{outline:2px solid var(--sel);outline-offset:1px}
+input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-radius:4px;background:var(--sunk);padding:1px}
+.layers{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:8px}
+.layers h3{margin:0}
+.layer-list{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:4px 6px;align-items:center}
+.layer-pick{text-align:left;font-family:var(--f-mono);font-size:12px;padding:4px 8px}
+.layer-list button:not(.layer-pick){padding:3px 7px;font-size:11px}
+.check{display:flex;align-items:center;gap:6px;font-size:14px}
+/* export */
+.anim-list{display:flex;flex-direction:column;gap:4px}
+.anim-list label{display:flex;align-items:center;gap:8px;font-size:14px}
+.anim-list .mono{margin-left:auto;color:var(--muted)}
+.sheet-box{overflow:auto;max-height:280px;border:1px solid var(--line);border-radius:4px}
+.sheet-box canvas{display:block;image-rendering:pixelated;max-width:none}
+.findings{display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto}
+.finding{display:flex;gap:6px;align-items:flex-start;text-align:left;font-size:13px;background:var(--panel);padding:5px 6px}
+.finding .lvl{flex:0 0 auto;font-family:var(--f-mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:1px 5px;border-radius:3px;margin-top:1px}
+.lvl.error{background:var(--err);color:var(--accent-ink)}
+.lvl.warning{background:var(--warn);color:#1b1d2c}
+.lvl.info{background:var(--sunk);color:var(--muted);border:1px solid var(--line)}
+.check-ok{color:var(--muted)}
+.project-msg{display:flex;flex-direction:column;gap:4px}
+.project-msg .msg{margin:0;font-size:13px;padding:6px 8px;border-radius:4px;border:1px solid var(--line);background:var(--panel)}
+.project-msg .msg.error{border-color:var(--err)}
+.project-msg .msg.warning{border-color:var(--warn)}
+.import-drop{border:2px dashed var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.import-drop p{margin:0}
+.import-drop.loaded{padding:8px 14px}
+.import.dragging .import-drop{border-color:var(--accent);background:var(--sunk)}
+.import-work{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media (max-width:860px){.import-work{grid-template-columns:minmax(0,1fr)}}
+.import-view{border:1px solid var(--line);border-radius:6px;min-height:200px;max-height:460px;overflow:hidden;display:grid;place-items:center;padding:2px}
+.import-view.zoomed{display:block;overflow:auto}
+.import-view canvas{display:block;cursor:crosshair;touch-action:none}
+.import-controls{display:flex;flex-direction:column;gap:12px;min-width:0}
+.import-controls h3{margin:0}
+.crop-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.crop-grid .field{justify-content:space-between}
+.crop-grid .field.wide{grid-column:1/-1}
+.crop-grid select{width:auto;max-width:150px;font-size:12px;padding:4px}
+.import-bg{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px;margin-top:4px}
+.import-bg h3{margin:0}
+#maskView canvas{cursor:default}
+#bgMsg.error{color:var(--err)}
+.import-controls .field input[type=checkbox]{width:auto;padding:0;margin:0}
+#thumbs > p{grid-column:1/-1;margin:0}
+.pt-list{display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:4px}
+.pt-row{display:grid;grid-template-columns:16px 12px minmax(0,1fr) 40px 42px 24px;gap:6px;align-items:center;font-size:12px;padding:1px 2px;border-radius:3px}
+.pt-row.on{background:var(--sunk)}
+.pt-head{color:var(--muted);font-size:11px;position:sticky;top:-4px;background:var(--panel)}
+.pt-head span:nth-child(4){text-align:right}
+.pt-chip{width:12px;height:12px;border-radius:2px}
+.pt-name{font:inherit;font-family:inherit;font-size:12px;min-width:0;border:1px solid transparent;background:transparent;color:var(--ink);padding:1px 3px}
+.pt-name:focus{border-color:var(--line);background:var(--sunk)}
+.pt-n{text-align:right;color:var(--muted)}
+.pt-miss{display:flex;justify-content:center}
+.pt-row button{padding:0 6px}
+#partsInfo.warn{color:var(--warn)}
+#partsCanvas{cursor:crosshair;touch-action:none}
+.rig-views{display:flex;flex-direction:column;gap:8px;min-width:0}
+.rig-pixel{border:1px solid var(--line);border-radius:6px;display:grid;place-items:center;padding:6px;min-height:120px}
+.rig-pixel canvas{image-rendering:pixelated}
+.made-legend{display:flex;flex-wrap:wrap;gap:8px}.made-key i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle}
+.rig-order{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:4px}
+.rig-row{display:grid;grid-template-columns:minmax(0,1fr) 28px 28px;gap:4px;align-items:center}
+.rig-row.on .rig-name{border-color:var(--sel)}
+.pf-list{list-style:none;margin:4px 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.pf-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:start}
+.pf-chip{font-size:11px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);white-space:nowrap}
+.pf-chip.ready{background:#2f9e44;color:#fff;border-color:#2f9e44}
+.pf-chip.attention{background:var(--warn);color:#1b1d2c;border-color:var(--warn)}
+.pf-chip.na{opacity:.75}
+.rig-name{text-align:left;font-size:12px;padding:2px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rig-row button:not(.rig-name){padding:0}
+#rigInfo.warn{color:var(--err)}
+#rigCanvas{cursor:pointer;touch-action:none}
+.an-tabs{margin:2px 0 8px}
+.dir-bar{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0 10px;background:var(--panel)}
+.tm-work{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:860px){.tm-work{grid-template-columns:minmax(0,1fr)}}
+.tm-dirs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;font-size:12px}
+.tm-dirs li{color:var(--muted)}
+.tm-dirs li.has{color:var(--ink);font-weight:600}
+.tm-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.tm-card{text-align:left;display:flex;flex-direction:column;gap:3px;padding:8px;min-height:96px;align-items:stretch}
+.tm-card .tm-name{font-weight:700}
+.tm-card .tm-desc,.tm-card .tm-meta,.tm-card .tm-needs{font-size:11px;line-height:1.35;font-weight:400}
+.tm-card .tm-why{font-size:11px;color:var(--warn,#b45309)}
+.tm-card:disabled{opacity:.55}
+.tm-preview{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:14px;align-items:start;border-top:1px solid var(--line);padding-top:10px}
+@media (max-width:860px){.tm-preview{grid-template-columns:minmax(0,1fr)}}
+.tm-preview canvas,#tmChar{image-rendering:pixelated}
+.an-strip{display:flex;flex-wrap:wrap;gap:3px}
+.an-cell{min-width:30px;padding:3px 6px;font-size:12px;font-family:var(--f-mono)}
+.an-cell.key{border-color:var(--accent);font-weight:700}
+.an-cell.key::after{content:' ◆';font-size:9px}
+.an-cell.edited{background:var(--sunk);box-shadow:inset 0 -3px 0 var(--sel)}
+.ar-swatches{display:flex;flex-wrap:wrap;gap:3px}
+.ar-sw{width:20px;height:20px;padding:0;border:1px solid var(--line);border-radius:3px}
+.ar-sw[aria-pressed="true"]{outline:2px solid var(--sel);outline-offset:1px}
+#arCanvas{cursor:crosshair;touch-action:none}
+.an-warn{color:var(--warn);margin:0;padding-left:16px}
+#anCanvas{cursor:grab;touch-action:none}
+.conv-swatches{display:flex;flex-wrap:wrap;gap:3px}
+.conv-sw{width:18px;height:18px;border:1px solid var(--line);border-radius:3px}
+#convCanvas{cursor:default}
+.export-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.export-btns .wide{grid-column:1/-1}
+/* variations */
+.tray-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.tray-head h2{margin:0}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.thumb{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px 6px;background:var(--panel)}
+.thumb[aria-pressed="true"]{background:var(--panel);color:var(--ink);border-color:var(--sel);box-shadow:0 0 0 1px var(--sel)}
+.thumb canvas{width:72px;height:72px;image-rendering:pixelated}
+.thumb span{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.guard{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:20;width:min(560px,calc(100% - 32px));background:var(--panel);border:2px solid var(--warn);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.guard p{margin:0}
+.help-btn{margin-left:auto}
+.help{position:fixed;top:0;right:0;bottom:0;z-index:30;width:min(440px,100vw);background:var(--panel);color:var(--ink);border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,.18);padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.help-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.help-head h2{margin:0;font-size:1.1rem}
+.help input[type=search]{width:100%}
+.help-body{flex:1;overflow:auto;padding-right:4px}
+.help-body details{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:0 0 8px}
+.help-body summary{cursor:pointer;font-weight:600}
+.help-body ol{padding-left:1.3em;margin:6px 0}
+.help-body li{margin:0 0 10px}
+.help-body dl{margin:0}.help-body dt{font-weight:600;margin-top:6px}.help-body dd{margin:0 0 4px}
+.help-step h4{margin:2px 0 4px;font-size:.95rem}
+.help-step p{margin:2px 0}
+.help-step .k{font-weight:600}
+.help-chip{display:inline-block;font-family:var(--f-mono);font-size:.85em;background:var(--sunk);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin:1px 2px}
+.help-where{font-size:.9em;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.help-hit{border-bottom:1px solid var(--line);padding:6px 0}
+.help-hit .t{font-size:.75em;color:var(--muted);text-transform:uppercase}
+.help-flash{outline:3px solid var(--accent)!important;outline-offset:3px;transition:outline-color .3s}
+@media (prefers-reduced-motion: reduce){.help-flash{transition:none}}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:4px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100% - 32px)}
+#toast.show{opacity:1}
+/* 2.5D Sprite Workshop (W1) */
+#modeSwitch{margin-left:auto}
+.workshop .ws-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.workshop .ws-edit{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:14px;align-items:start;margin-top:8px}
+@media (max-width:820px){.workshop .ws-edit{grid-template-columns:1fr}}
+.workshop .ws-stage{overflow:auto;max-height:78vh;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:8px}
+.workshop #wsCanvas{display:block;image-rendering:pixelated;cursor:crosshair;touch-action:none}
+.workshop .ws-side{display:flex;flex-direction:column;gap:10px}
+.workshop .ws-main{display:flex;flex-direction:column;gap:10px;min-width:0;position:sticky;top:8px}
+@media (max-width:820px){.workshop .ws-main{position:static}}
+.workshop .ws-strip{display:flex;gap:6px;overflow-x:auto;padding:4px 2px}
+.workshop .ws-strip button{padding:3px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;flex:0 0 auto}
+.workshop .ws-strip canvas{image-rendering:pixelated;background:repeating-conic-gradient(#d7dbe5 0 25%,#eef0f5 0 50%) 0 0/8px 8px;width:48px;height:48px}
+.workshop .ws-strip .ws-linked{color:var(--sel);font-weight:600}
+.workshop .ws-strip button[aria-pressed="true"]{outline:2px solid var(--sel);outline-offset:1px}
+.workshop .ws-side h3{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
+.workshop .ws-layer{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;padding:2px 0;border-bottom:1px solid var(--line)}
+.workshop .ws-check{display:inline-flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap}
+.workshop .ws-check input{width:auto;margin:0}
+.workshop .ws-layer .ws-check:first-child{min-width:64px}
+.workshop .ws-export{margin-top:14px;border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.workshop .ws-export h3{margin:0;font-size:13px;color:var(--muted);font-weight:600}
+.workshop .ws-export input[type=number]{width:5em}
+.workshop .ws-sheet-wrap{overflow:auto;max-height:340px;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:8px}
+.workshop #wsSheet{display:block;image-rendering:pixelated;background:repeating-conic-gradient(#d7dbe5 0 25%,#eef0f5 0 50%) 0 0/8px 8px}
+.workshop .ws-current{width:26px;height:26px;border:1px solid var(--line);border-radius:3px;display:inline-block}
+@media (prefers-reduced-motion: reduce){#toast{transition:none}}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><canvas id="logo" width="16" height="16" aria-hidden="true"></canvas><h1>Sprite Foundry</h1></div>
+    <p class="tagline">Seeded pixel-art sprites with animation frames. Pick a variation, touch it up, export a sheet your game engine can load.</p>
+    <div class="seg" id="modeSwitch" role="group" aria-label="Page">
+      <button type="button" data-mode="foundry" aria-pressed="true">Sprite Foundry</button>
+      <button type="button" data-mode="workshop" aria-pressed="false">2.5D Workshop</button>
+    </div>
+    <button id="helpBtn" type="button" class="help-btn" aria-haspopup="dialog" aria-controls="helpPanel" aria-expanded="false">Help &amp; Tutorials</button>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-label="Generator settings">
+      <div class="group">
+        <h2 class="label">Sprite type</h2>
+        <div class="seg" id="typeSeg"></div>
+      </div>
+      <div class="group">
+        <h2 class="label">Sprite size</h2>
+        <div class="seg" id="sizeSeg"></div>
+        <p class="hint" id="sizeHint">Each frame gets 2 px of headroom on every side for outlines and motion.</p>
+      </div>
+      <div class="group" id="heroGroup" hidden>
+        <h2 class="label"><label for="heroClass">Class</label></h2>
+        <select id="heroClass"></select>
+        <p class="hint" id="heroRolled"></p>
+        <h2 class="label">Parts</h2>
+        <div class="part-list" id="partList"></div>
+        <div class="row">
+          <button id="heroRoll" type="button">Randomize unlocked</button>
+          <label class="check"><input type="checkbox" id="lockColours"> Lock colours</label>
+        </div>
+        <p class="hint">Picking a part locks it. Locked parts stay when you randomize or load a variation; unlocking returns the slot to what the seed rolls.</p>
+      </div>
+      <div class="group">
+        <h2 class="label"><label for="palette">Palette</label></h2>
+        <select id="palette">
+          <option value="free">Free colour (hue-shifted ramps)</option>
+          <option value="pico8">PICO-8 · 16</option>
+          <option value="sweetie16">Sweetie 16</option>
+          <option value="endesga32">Endesga 32</option>
+          <option value="gameboy">Game Boy · 4</option>
+          <option value="custom">Custom palette</option>
+        </select>
+      </div>
+      <div class="group" id="customPaletteGroup" hidden>
+        <h2 class="label">Custom palette</h2>
+        <div class="swatches" id="customSwatches" role="group" aria-label="Custom palette colours"></div>
+        <div class="row">
+          <input type="color" id="cpColor" value="#ffffff" aria-label="Colour to add">
+          <button id="cpAdd" type="button">Add colour</button>
+          <button id="cpFromSprite" type="button">From sprite</button>
+          <button id="cpClear" type="button">Clear palette</button>
+        </div>
+        <select id="cpPreset" aria-label="Copy a preset palette">
+          <option value="">Copy a preset…</option>
+          <option value="pico8">PICO-8</option>
+          <option value="sweetie16">Sweetie 16</option>
+          <option value="endesga32">Endesga 32</option>
+          <option value="gameboy">Game Boy</option>
+        </select>
+        <label class="label" for="cpHex">Hex list (paste or edit)</label>
+        <textarea id="cpHex" rows="3" spellcheck="false"></textarea>
+        <p class="hint" id="cpHint"></p>
+        <div class="row">
+          <label class="file-btn" for="cpPalFile">Open palette file<input type="file" id="cpPalFile" accept=".gpl,.pal,.hex,.txt" hidden></label>
+          <select id="cpPalFormat" aria-label="Palette file format"><option value="gpl">GIMP .gpl</option><option value="pal">JASC .pal</option><option value="hex">.hex list</option></select>
+          <button id="cpPalSave" type="button">Save palette</button>
+        </div>
+        <div class="row" role="group" aria-label="Ramp builder">
+          <span class="label">Ramp</span>
+          <input type="color" id="cpRampBase" aria-label="Ramp base colour" value="#3a7bd5">
+          <label class="field" for="cpRampSteps">steps <select id="cpRampSteps"><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></label>
+          <label class="field" for="cpRampShift" title="How far the hue turns per step: warm when lighter, cool when darker">hue shift <input type="range" id="cpRampShift" min="0" max="40" step="1" value="12" style="width:5em"></label>
+          <span class="swatches ramp-preview" id="cpRampPreview" aria-label="Ramp preview"></span>
+          <button id="cpRampAdd" type="button">Add ramp to palette</button>
+        </div>
+        <p class="hint">A Lospec palette: copy its hex list from lospec.com and paste it above (the app makes no network calls).</p>
+      </div>
+      <div class="group" id="variantGroup">
+        <h2 class="label"><label for="varShown">Colour variants</label></h2>
+        <div class="row"><select id="varShown" aria-label="Colour variant shown"></select></div>
+        <div class="row">
+          <input type="text" id="varName" placeholder="red_team" maxlength="24" aria-label="Variant name" style="width:9em" spellcheck="false">
+          <button id="varAdd" type="button">Add variant</button>
+          <button id="varRename" type="button" aria-label="Rename variant">Rename</button>
+          <button id="varDel" type="button" aria-label="Remove variant">Remove</button>
+        </div>
+        <div class="var-map" id="varMap" role="group" aria-label="New colours of this variant"></div>
+        <p class="hint" id="varHint"></p>
+      </div>
+      <div class="group">
+        <h2 class="label">Outline</h2>
+        <div class="seg" id="outlineSeg"></div>
+      </div>
+      <div class="group">
+        <h2 class="label">Seeds</h2>
+        <div class="seed-grid">
+          <label for="shapeSeed">Shape</label><input type="text" id="shapeSeed" spellcheck="false" autocomplete="off">
+          <label for="colorSeed">Colour</label><input type="text" id="colorSeed" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="row">
+          <button id="reshapeBtn" type="button">New shape</button>
+          <button id="recolorBtn" type="button">New colours</button>
+        </div>
+        <p class="hint">The same seeds always give the same sprite, so you can note them down and rebuild it later.</p>
+      </div>
+    </section>
+
+    <section class="stage-wrap" aria-label="Preview">
+      <div class="stage-bar">
+        <div class="seg" id="animSeg" role="group" aria-label="Animation"></div>
+        <span class="mono" id="frameInfo"></span>
+        <span class="badge mono" id="editBadge" hidden>Editing base pose</span>
+      </div>
+      <div class="stage bg-checker" id="stage">
+        <canvas id="stageCanvas" width="20" height="20"></canvas>
+      </div>
+      <div class="live-preview" id="livePreview" role="group" aria-label="Live preview" hidden>
+        <div class="live-box bg-checker"><canvas id="liveCanvas" width="1" height="1" aria-label="Live preview of the animation"></canvas></div>
+        <span class="hint">Live preview: keeps playing while you draw.</span>
+        <button id="livePlay" type="button">Pause</button>
+        <label class="field" for="liveScale">size <select id="liveScale"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+      </div>
+      <div class="live-preview" id="rotPreview" role="group" aria-label="Rotation preview" hidden>
+        <div class="live-box bg-checker"><canvas id="rotCanvas" width="1" height="1" aria-label="Every direction playing the same animation"></canvas></div>
+        <span class="hint">Rotation preview: every direction with its own artwork, in step.</span>
+        <button id="rotPlay" type="button">Pause</button>
+        <label class="field" for="rotLayout">layout <select id="rotLayout"><option value="circle">around</option><option value="row">in a row</option></select></label>
+      </div>
+      <div class="strip" id="strip" aria-label="Frames"></div>
+      <div class="timeline-bar" id="timelineBar">
+        <div class="seg" role="group" aria-label="Step">
+          <button id="prevFrame" type="button" aria-label="Previous frame">◀</button>
+          <button id="nextFrame" type="button" aria-label="Next frame">▶</button>
+        </div>
+        <div class="seg" role="group" aria-label="Frame actions">
+          <button id="moveLeft" type="button" aria-label="Move frame left">Move ←</button>
+          <button id="moveRight" type="button" aria-label="Move frame right">Move →</button>
+          <button id="dupFrame" type="button">Duplicate</button>
+          <button id="delFrame" type="button">Delete</button>
+          <button id="copyFrame" type="button">Copy</button>
+          <button id="pasteFrame" type="button">Paste</button>
+          <button id="tlUndo" type="button" aria-label="Undo timeline change">Undo</button>
+          <button id="tlRedo" type="button" aria-label="Redo timeline change">Redo</button>
+        </div>
+        <label class="field" for="frameDur">Frame ms <input type="number" id="frameDur" min="10" max="10000" step="1"></label>
+        <label class="field" for="animFps">Animation fps <input type="number" id="animFps" min="1" max="60" step="1"></label>
+        <label class="check"><input type="checkbox" id="animLoop"> Loop</label>
+        <label class="field" for="animMode">Plays <select id="animMode"><option value="forward">forward</option><option value="reverse">reverse</option><option value="pingpong">ping-pong</option><option value="pingpongReverse">ping-pong from the end</option></select></label>
+        <label class="field" for="animRepeat" title="How many times an animation that does not loop plays">× <input type="number" id="animRepeat" min="1" max="99" step="1" style="width:3.5em"></label>
+      </div>
+      <details class="frame-data" id="frameData">
+        <summary>Frame data for games <span class="hint mono" id="fdSummary"></span></summary>
+        <div class="row">
+          <span class="label">Pivot</span>
+          <label class="field" for="fdPivotX">x <input type="number" id="fdPivotX" step="0.5" style="width:5em"></label>
+          <label class="field" for="fdPivotY">y <input type="number" id="fdPivotY" step="0.5" style="width:5em"></label>
+          <button id="fdPivotReset" type="button">Use the sprite's pivot</button>
+        </div>
+        <ul class="hint" id="fdBoxes"></ul>
+        <div class="row">
+          <label class="field" for="fdKind">box <select id="fdKind"><option value="hit">hitbox (deals damage)</option><option value="hurt">hurtbox (takes damage)</option></select></label>
+          <label class="field" for="fdX">x <input type="number" id="fdX" min="0" step="1" style="width:4em"></label>
+          <label class="field" for="fdY">y <input type="number" id="fdY" min="0" step="1" style="width:4em"></label>
+          <label class="field" for="fdW">w <input type="number" id="fdW" min="1" step="1" style="width:4em"></label>
+          <label class="field" for="fdH">h <input type="number" id="fdH" min="1" step="1" style="width:4em"></label>
+          <button id="fdAdd" type="button">Add box</button>
+          <button id="fdFromSel" type="button" title="Edit pixels → This frame → Select a rectangle first">Add from selection</button>
+        </div>
+        <div class="row">
+          <label class="field wide" for="fdEvents">events <input type="text" id="fdEvents" placeholder="footstep, hit" spellcheck="false" list="fdEventList"></label>
+          <datalist id="fdEventList"><option value="footstep"><option value="hit"><option value="shoot"><option value="sound"></datalist>
+          <label class="check"><input type="checkbox" id="showBoxes" checked> Show boxes and pivot</label>
+        </div>
+        <p class="hint">Per-frame data for game engines, in frame pixels from the top left (margin included). Exported in the atlas JSON (meta.frameData), the manifest and the Godot and Unity packs. Hitboxes are red, hurtboxes green, the pivot is a cross.</p>
+      </details>
+      <div class="controls-row">
+        <button id="playBtn" type="button">Pause</button>
+        <div class="fps"><label for="fps" class="mono" id="fpsLabel">8 fps</label><input type="range" id="fps" min="2" max="24" step="1" value="8"></div>
+        <div class="seg" id="bgSeg" role="group" aria-label="Background"></div>
+        <div class="seg" role="group" aria-label="Zoom">
+          <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+          <button id="zoomFit" type="button" aria-label="Zoom to fit"><span id="zoomLabel">Fit</span></button>
+          <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+        </div>
+        <label class="check"><input type="checkbox" id="gridToggle" checked> Grid</label>
+        <label class="check"><input type="checkbox" id="onion"> Onion skin</label>
+        <span class="onion-opts" role="group" aria-label="Onion skin options">
+          <label class="field" for="onionBack" title="Frames shown before the current one">back <select id="onionBack"><option>1</option><option>2</option><option>3</option></select></label>
+          <label class="field" for="onionAhead" title="Frames shown after the current one">ahead <select id="onionAhead"><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
+          <label class="field" for="onionTint">tint <select id="onionTint"><option value="none">none</option><option value="redblue">red / blue</option></select></label>
+          <label class="field" for="onionOpacity">opacity <input type="range" id="onionOpacity" min="0.1" max="0.9" step="0.05" style="width:5em"></label>
+        </span>
+        <button id="editBtn" type="button" aria-pressed="false">Edit pixels</button>
+      </div>
+      <div class="tools" id="tools" hidden>
+        <div class="row">
+          <div class="seg" id="targetSeg" role="group" aria-label="Edit target"></div>
+          <button id="revertFrame" type="button">Revert frame</button>
+        </div>
+        <div class="layers" id="layersPanel" hidden>
+          <h3 class="label">Layers · top first</h3>
+          <div class="layer-list" id="layerList"></div>
+          <label class="check"><input type="checkbox" id="layerOnly"> Paint on the selected layer only</label>
+          <p class="hint">Layers are the sprite's parts; each moves as one piece in the animations. New pixels join the selected layer. Hidden layers are hidden here and protected from edits; they still export. Moving a layer changes the draw order everywhere.</p>
+        </div>
+        <div class="row">
+          <div class="seg" id="toolSeg" role="group" aria-label="Tool"></div>
+          <label class="check"><input type="checkbox" id="mirror" checked> Mirror</label>
+          <select id="mirrorAxis" aria-label="Mirror axis"><option value="vertical">left ↔ right</option><option value="horizontal">top ↔ bottom</option><option value="both">both</option></select>
+          <button id="undoBtn" type="button">Undo</button>
+          <button id="redoBtn" type="button">Redo</button>
+          <button id="resetBtn" type="button">Discard edits</button>
+        </div>
+        <div class="row" id="toolOpts">
+          <label class="check" title="Pencil and eraser drop the middle pixel of each L-shaped corner, so curves stay one pixel thin"><input type="checkbox" id="pixelPerfect"> Pixel-perfect</label>
+          <label class="check" title="Lines snap to flat, 2:1 (isometric), 1:1, 1:2 or upright"><input type="checkbox" id="snapLines" checked> Snap lines to 2:1</label>
+          <label class="check"><input type="checkbox" id="rectFilled"> Filled rectangle</label>
+          <label class="field" for="ditherLevel">Dither <select id="ditherLevel"><option value="25">25%</option><option value="50" selected>50%</option><option value="75">75%</option></select></label>
+        </div>
+        <div class="row" id="selRow">
+          <button id="selCopy" type="button">Copy</button><button id="selCut" type="button">Cut</button><button id="selPaste" type="button">Paste</button>
+          <button id="selFlipH" type="button" aria-label="Flip the selection left to right">Flip ↔</button><button id="selFlipV" type="button" aria-label="Flip the selection top to bottom">Flip ↕</button>
+          <button id="selNone" type="button">Deselect</button>
+          <button id="selOut" type="button" title="Outline pixels of the current colour take a darker shade of the colour inside them">Sel-out</button>
+        </div>
+        <div class="row">
+          <div class="swatches" id="swatches" role="group" aria-label="Colours"></div>
+          <input type="color" id="customColor" aria-label="Custom colour" value="#ffffff">
+        </div>
+        <div class="row" id="replaceRow" role="group" aria-label="Replace a colour">
+          <span class="label">Replace</span>
+          <input type="color" id="rcFrom" aria-label="Colour to replace" value="#000000">
+          <button id="rcFromCurrent" type="button" title="Use the colour chosen for painting">current</button>
+          <span>with</span>
+          <input type="color" id="rcTo" aria-label="Replacement colour" value="#ffffff">
+          <select id="rcScope" aria-label="Where to replace"><option value="frame">in this frame</option><option value="anim">in this animation</option><option value="all">everywhere</option></select>
+          <button id="rcGo" type="button">Replace</button>
+        </div>
+        <p class="hint" id="targetHint">Edits go into the base pose and carry through every generated frame. Generating a new shape discards them.</p>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Export">
+      <div class="group">
+        <h2 class="label">Project</h2>
+        <div class="row">
+          <button id="saveProject" type="button">Save project</button>
+          <button id="openProject" type="button">Open project…</button>
+          <input type="file" id="openFile" accept=".json,application/json" hidden>
+        </div>
+        <p class="hint mono" id="projectStatus"></p>
+        <div class="project-msg" id="projectMsg" role="status" hidden></div>
+        <p class="hint">A project keeps everything editable: seeds, parts, edited pixels, the timeline and export choices. Your work is also kept in this browser between visits.</p>
+      </div>
+      <div class="group">
+        <h2 class="label">Sheet rows</h2>
+        <div class="anim-list" id="animList"></div>
+      </div>
+      <div class="group">
+        <h2 class="label">Export scale</h2>
+        <div class="seg" id="scaleSeg"></div>
+      </div>
+      <div class="group">
+        <h2 class="label">Sheet preview</h2>
+        <div class="sheet-box bg-checker"><canvas id="sheetCanvas" width="1" height="1"></canvas></div>
+        <p class="hint mono" id="sheetInfo"></p>
+      </div>
+      <div class="group">
+        <h2 class="label">Frame check</h2>
+        <p class="hint mono" id="checkSummary"></p>
+        <div class="findings" id="findings" aria-label="Frame check findings"></div>
+      </div>
+      <div class="export-btns">
+        <button class="primary" id="pngBtn" type="button">Sheet .png</button>
+        <button id="jsonBtn" type="button">Atlas .json</button>
+        <button id="gifBtn" type="button">GIF of current</button>
+        <button id="aseBtn" type="button" title="Every animation as a tag, frame times, frame data; one flattened layer">Aseprite .aseprite</button>
+        <button id="zipBtn" type="button">Full pack .zip</button>
+      </div>
+      <div class="group">
+        <h2 class="label"><label for="exportPreset">Export preset</label></h2>
+        <div class="row">
+          <select id="exportPreset" style="flex:1;width:auto">
+            <option value="phaser">Phaser: sheet + atlas JSON</option>
+            <option value="full">Full pack: sheet, JSON, GIFs, frames</option>
+            <option value="frames">Individual PNG frames</option>
+            <option value="gifs">Animated GIF previews</option>
+          </select>
+          <button id="presetBtn" type="button">Export .zip</button>
+        </div>
+        <p class="hint">Every preset uses the selected rows and scale and includes manifest.json, which lists each file with its pixel size, the frame size, fps, loop and pivot.</p>
+      </div>
+      <p class="hint">The JSON uses the Aseprite hash layout with frames keyed "0", "1", … and one frame tag per row. In Phaser: <span class="mono">load.aseprite()</span> then <span class="mono">anims.createFromAseprite()</span>.</p>
+    </section>
+  </main>
+
+  <section class="panel import" id="importPanel" aria-label="Image to pixel art">
+    <div class="tray-head">
+      <h2 class="label">Image to pixel art · 1 source image · 2 background · 3 pixel art · 4 body parts · 5 joints · 6 animation · 7 drawings</h2>
+      <span class="hint mono">Presets: idle, walk, sword attack, run, jump, hurt, death</span>
+    </div>
+    <div class="dir-bar" id="dirBar" hidden>
+      <div class="row">
+        <span class="label">Direction</span>
+        <div class="seg" id="dirSeg" role="group" aria-label="Direction steps 1 to 7 work on"></div>
+        <label class="field" for="dirAdd">add <select id="dirAdd"></select></label>
+        <button id="dirAddBtn" type="button">Add direction</button>
+        <button id="dirRemove" type="button" hidden>Remove this direction</button>
+        <label class="field" for="dirMain">main image shows <select id="dirMain"></select></label>
+      </div>
+      <p class="hint" id="dirInfo"></p>
+    </div>
+    <div class="import-drop" id="importDrop">
+      <p>Drop a full-body character illustration here, or <button id="importPick" type="button">choose a file…</button></p>
+      <input type="file" id="importFile" accept="image/png,image/jpeg,.png,.jpg,.jpeg" hidden>
+      <p class="hint" id="importLimits"></p>
+    </div>
+    <div class="project-msg" id="importMsg" role="status" hidden></div>
+    <div class="import-work" id="importWork" hidden>
+      <div class="import-view bg-checker" id="importView"><canvas id="importCanvas" width="1" height="1" aria-label="Source image with crop"></canvas></div>
+      <div class="import-controls">
+        <p class="hint mono" id="importInfo"></p>
+        <div class="group">
+          <h3 class="label">Crop</h3>
+          <div class="crop-grid">
+            <label class="field" for="cropX">x <input type="number" id="cropX" step="1"></label>
+            <label class="field" for="cropY">y <input type="number" id="cropY" step="1"></label>
+            <label class="field" for="cropW">width <input type="number" id="cropW" step="1"></label>
+            <label class="field" for="cropH">height <input type="number" id="cropH" step="1"></label>
+          </div>
+          <div class="row"><button id="cropAll" type="button">Whole image</button><span class="hint mono" id="cropInfo"></span></div>
+          <p class="hint">Drag on the preview to draw a crop, drag inside it to move it, or drag a corner to resize.</p>
+        </div>
+        <div class="group">
+          <h3 class="label">Preview zoom</h3>
+          <div class="seg" role="group" aria-label="Preview zoom">
+            <button id="ivOut" type="button" aria-label="Zoom preview out">−</button>
+            <button id="ivFit" type="button" aria-label="Fit preview"><span id="ivLabel">Fit</span></button>
+            <button id="ivIn" type="button" aria-label="Zoom preview in">+</button>
+          </div>
+        </div>
+        <div class="group">
+          <h3 class="label">Character position</h3>
+          <div class="crop-grid">
+            <label class="field wide" for="placeAnchor">anchor <select id="placeAnchor"><option value="bottom">feet (bottom centre)</option><option value="centre">centre</option></select></label>
+            <label class="field" for="placeX">shift x <input type="number" id="placeX" min="-16" max="16" step="1" value="0"></label>
+            <label class="field" for="placeY">shift y <input type="number" id="placeY" min="-16" max="16" step="1" value="0"></label>
+          </div>
+          <p class="hint">Where the crop's anchor lands in the sprite frame (shift in sprite pixels). The blue cross marks the anchor.</p>
+        </div>
+        <button id="importReplace" type="button">Replace image…</button>
+      </div>
+    </div>
+    <div class="import-bg" id="bgWork" hidden>
+      <div class="tray-head">
+        <h3 class="label">2 · background</h3>
+        <span class="hint mono" id="cvStatus"></span>
+      </div>
+      <div class="import-work">
+        <div class="import-view bg-checker" id="maskView"><canvas id="maskCanvas" width="1" height="1" aria-label="Background removal preview"></canvas></div>
+        <div class="import-controls">
+          <div class="group">
+            <div class="crop-grid">
+              <label class="field wide" for="bgMethod">method <select id="bgMethod">
+                <option value="auto">automatic</option>
+                <option value="grabcut">OpenCV GrabCut</option>
+                <option value="flood">edge flood-fill</option>
+                <option value="key">colour key</option>
+                <option value="alpha">keep transparency</option>
+              </select></label>
+              <label class="field wide" for="bgTol">tolerance <input type="range" id="bgTol" min="0" max="128" value="40"><span class="mono" id="bgTolV">40</span></label>
+              <label class="field" for="bgIter">GrabCut passes <input type="number" id="bgIter" min="1" max="10" step="1" value="5"></label>
+            </div>
+            <div class="row" id="bgKeyRow" hidden><label class="field" for="bgKey">key colour <input type="color" id="bgKey" value="#6aa0d8"></label><button id="bgPickKey" type="button" aria-pressed="false">Pick from image</button></div>
+            <label class="field" for="bgClean"><input type="checkbox" id="bgClean" checked> remove specks and fill small holes</label>
+            <p class="hint">Automatic uses the image's transparency if it has any, otherwise GrabCut. GrabCut separates busy backgrounds but is not perfect: fix the result with the brush and run it again.</p>
+            <button id="bgRun" type="button" class="primary">Remove background</button>
+            <p class="hint" id="bgMsg" role="status"></p>
+          </div>
+          <div class="group">
+            <h3 class="label">Brush</h3>
+            <div class="seg" role="group" aria-label="Mask brush">
+              <button id="brKeep" type="button" aria-pressed="false">Keep</button>
+              <button id="brRemove" type="button" aria-pressed="false">Remove</button>
+              <button id="brOff" type="button" aria-pressed="true">Off</button>
+            </div>
+            <label class="field" for="brSize">size <input type="range" id="brSize" min="1" max="40" value="6"><span class="mono" id="brSizeV">6</span></label>
+            <div class="row"><button id="brUndo" type="button">Undo stroke</button><button id="brClear" type="button">Clear brush</button></div>
+            <p class="hint">Keep: paint over the character (green). Remove: paint over background (red). The brush always wins; GrabCut also learns from it when you run it again.</p>
+          </div>
+          <label class="field" for="bgView">preview <select id="bgView"><option value="cut">cut-out on checkerboard</option><option value="overlay">removed area in red</option></select></label>
+          <p class="hint mono" id="bgInfo"></p>
+        </div>
+      </div>
+    </div>
+    <div class="import-bg" id="convWork" hidden>
+      <div class="tray-head">
+        <h3 class="label">3 · pixel art</h3>
+        <span class="hint mono" id="convInfo"></span>
+      </div>
+      <p class="hint" id="convMsg" role="status"></p>
+      <div class="import-work">
+        <div class="import-view bg-checker" id="convView"><canvas id="convCanvas" width="1" height="1" aria-label="Pixel art compare view"></canvas></div>
+        <div class="import-controls">
+          <div class="group">
+            <div class="seg" role="group" aria-label="Compare view">
+              <button id="cvwOrig" type="button" aria-pressed="false">Original</button>
+              <button id="cvwPixel" type="button" aria-pressed="true">Pixel art</button>
+              <button id="cvwSlider" type="button" aria-pressed="false">Slider</button>
+            </div>
+            <label class="field" for="convSplit" id="convSplitRow" hidden>split <input type="range" id="convSplit" min="0" max="100" value="50"></label>
+          </div>
+          <div class="crop-grid">
+            <label class="field" for="convHeight">size <select id="convHeight"><option value="32">32 px</option><option value="48">48 px</option><option value="64">64 px</option><option value="96">96 px</option></select></label>
+            <label class="field" for="convHeadroom">headroom <input type="number" id="convHeadroom" min="0" max="32" step="1" value="12"></label>
+            <label class="field" for="convFloor">floor <input type="number" id="convFloor" min="0" max="8" step="1" value="1" title="Empty rows under the feet, so feet that turn in an animation are not cut off"></label>
+            <label class="field wide" for="convPalette">palette <select id="convPalette"></select></label>
+            <label class="field wide" for="convColours">colours <input type="range" id="convColours" min="2" max="32" value="16"><span class="mono" id="convColoursV">16</span></label>
+            <label class="field wide" for="convResample">downsample <select id="convResample"><option value="average">average</option><option value="majority">majority</option><option value="exact">exact (already pixel art, 1:1)</option></select></label>
+            <label class="field wide" for="convContrast">contrast <input type="range" id="convContrast" min="0" max="50" value="0"><span class="mono" id="convContrastV">0%</span></label>
+            <label class="field wide" for="convSat">saturation <input type="range" id="convSat" min="0" max="50" value="0"><span class="mono" id="convSatV">0%</span></label>
+          </div>
+          <label class="field" for="convDither"><input type="checkbox" id="convDither"> ordered dithering</label>
+          <label class="field" for="convClean"><input type="checkbox" id="convClean" checked> clean up stray pixels, holes and noise</label>
+          <p class="hint">The sprite is size × size px with a 2 px margin (frame size + 4). Headroom is free space above the head for raised weapons and jumps. Downsample: average keeps smooth shading; majority keeps flat colour regions crisp.</p>
+          <div class="group">
+            <h3 class="label">Palette</h3>
+            <div class="conv-swatches" id="convSwatches"></div>
+            <label class="field" for="convLock"><input type="checkbox" id="convLock"> lock palette (keep these exact colours)</label>
+          </div>
+          <div class="group">
+            <h3 class="label">Use</h3>
+            <button id="convApply" type="button" class="primary" disabled>Use as sprite</button>
+            <p class="hint">Makes this pixel art the <b>Imported</b> sprite in the editor, timeline and exports. Each use is kept as a version you can return to.</p>
+            <div class="row" id="convVersionRow" hidden>
+              <label class="field" for="convVersions">version <select id="convVersions"></select></label>
+              <button id="convRestore" type="button">Return to this version</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="import-bg" id="partsWork" hidden>
+      <div class="tray-head">
+        <h3 class="label">4 · body parts</h3>
+        <span class="hint mono" id="partsInfo"></span>
+      </div>
+      <p class="hint" id="partsMsg" role="status"></p>
+      <div class="import-work">
+        <div class="import-view bg-checker" id="partsView"><canvas id="partsCanvas" width="1" height="1" aria-label="Body parts of the Imported sprite"></canvas></div>
+        <div class="import-controls">
+          <div class="group">
+            <div class="seg" role="group" aria-label="Parts tool">
+              <button id="ptBrush" type="button" aria-pressed="true">Brush</button>
+              <button id="ptErase" type="button" aria-pressed="false">Eraser</button>
+              <button id="ptLasso" type="button" aria-pressed="false">Lasso</button>
+              <button id="ptFill" type="button" aria-pressed="false">Fill</button>
+            </div>
+            <label class="field" for="ptSize">brush <input type="range" id="ptSize" min="1" max="32" value="4"><span class="mono" id="ptSizeV">4</span></label>
+            <label class="field" for="ptTol">fill tolerance <input type="range" id="ptTol" min="0" max="160" value="40"><span class="mono" id="ptTolV">40</span></label>
+            <div class="row">
+              <button id="ptGuess" type="button">Rough guess</button>
+              <button id="ptGrow" type="button" class="primary">Grow from strokes</button>
+            </div>
+            <label class="field" for="ptMethod">grow with <select id="ptMethod"><option value="auto">OpenCV if loaded, else local</option><option value="opencv">OpenCV watershed</option><option value="local">local only</option></select></label>
+            <div class="row"><button id="ptUndo" type="button">Undo</button><button id="ptRedo" type="button">Redo</button><button id="ptClear" type="button">Clear all parts</button></div>
+            <p class="hint">Paint a short stroke inside each part, then Grow from strokes. Pink pixels belong to no part yet. Brush, lasso and fill assign the chosen part; the eraser unassigns.</p>
+          </div>
+          <div class="group">
+            <div class="row">
+              <label class="field" for="ptShow">show <select id="ptShow"><option value="all">all parts tinted</option><option value="active">chosen part only</option><option value="image">image only</option></select></label>
+              <label class="field" for="ptHighlight"><input type="checkbox" id="ptHighlight" checked> unassigned in pink</label>
+            </div>
+            <div class="pt-list" id="ptList" role="radiogroup" aria-label="Body parts"></div>
+            <p class="hint">L and R mean the screen side (left and right as you look at the picture).</p>
+            <div class="row"><label class="field" for="ptNew">new part <input type="text" id="ptNew" maxlength="32" placeholder="cape"></label><button id="ptAdd" type="button">Add part</button></div>
+          </div>
+          <div class="group">
+            <h3 class="label">Back limb</h3>
+            <div class="row">
+              <label class="field" for="ptLimb">limb <select id="ptLimb"><option value="armL">arm (screen left)</option><option value="armR">arm (screen right)</option><option value="legL">leg (screen left)</option><option value="legR">leg (screen right)</option></select></label>
+              <button id="ptBack" type="button">Duplicate as back limb</button>
+            </div>
+            <p class="hint">When the image shows only one arm or leg clearly, a darkened copy can stand in for the one behind the body. It is marked user-made: the image does not show that limb.</p>
+            <ul class="hint" id="ptExtras"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="import-bg" id="rigWork" hidden>
+      <div class="tray-head">
+        <h3 class="label">5 · joints and layers</h3>
+        <span class="hint mono" id="rigInfo"></span>
+      </div>
+      <p class="hint" id="rigMsg" role="status"></p>
+      <div class="import-work">
+        <div class="rig-views">
+          <div class="import-view bg-checker" id="rigView"><canvas id="rigCanvas" width="1" height="1" aria-label="Joints of the Imported sprite"></canvas></div>
+          <div class="rig-pixel bg-checker"><canvas id="rigPixel" width="1" height="1" aria-label="Pose preview at sprite size"></canvas></div>
+          <label class="field" for="rigMade"><input type="checkbox" id="rigMade"> show pixels not from the image</label>
+          <span class="made-legend hint" id="rigMadeKey" hidden></span>
+          <p class="hint" id="rigMadeNote" role="status"></p>
+        </div>
+        <div class="import-controls">
+          <div class="group">
+            <label class="field wide" for="rigBone">joint <select id="rigBone"></select></label>
+            <label class="field wide" for="rigParent">moves with <select id="rigParent"></select></label>
+            <div class="row" id="rigHolderRow"><label class="field wide" for="rigHolder">weapon held in <select id="rigHolder"></select></label></div>
+            <div class="row"><button id="rigSuggest" type="button">Suggest joints</button><button id="rigUndo" type="button">Undo</button><button id="rigRedo" type="button">Redo</button></div>
+            <p class="hint">Drag a joint handle to where the part turns. Blue joints are suggestions that follow the parts; orange ones were moved by hand.</p>
+          </div>
+          <div class="group">
+            <h3 class="label">Test pose (preview only)</h3>
+            <label class="field wide" for="rigTurn">turn <input type="range" id="rigTurn" min="-180" max="180" step="5" value="0"><span class="mono" id="rigTurnV">0°</span></label>
+            <button id="rigResetPose" type="button">Reset pose</button>
+            <p class="hint">Turns the chosen part and everything attached to it, to check the joints. Turning uncovers areas the image never showed; joint fill (bleed) closes small gaps only.</p>
+            <label class="field wide" for="rigStress">stress test <select id="rigStress"></select></label>
+            <button id="rigStressAll" type="button">Check every pose</button>
+            <ul class="pf-list" id="rigStressFind" aria-label="What this pose shows"></ul>
+            <ul class="pf-list" id="rigStressList" aria-label="Every stress pose"></ul>
+            <p class="hint">Common problem poses, drawn by your rig and checked with the frame check: gaps at joints, parts that come away from their parent, cut-off limbs, a weapon that leaves the hand, uncovered areas without hidden-area art, and limbs whose front/back order matters. Preview only: nothing is saved; Reset pose returns to the exact rest pose.</p>
+          </div>
+          <div class="group">
+            <h3 class="label">Layer order (front at the top)</h3>
+            <div class="rig-order" id="rigOrder"></div>
+            <label class="field" for="rigBleed">joint fill <input type="number" id="rigBleed" min="0" max="4" step="1" value="2"> px</label>
+            <p class="hint">User-made back limbs are always drawn behind every part.</p>
+            <label class="field wide" for="rigKeepUn"><input type="checkbox" id="rigKeepUn"> unassigned pixels stay unassigned on purpose (they move with the whole body)</label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="import-bg" id="animWork" hidden>
+      <div class="tray-head">
+        <h3 class="label">6 · animation</h3>
+        <span class="hint mono" id="anInfo"></span>
+      </div>
+      <div class="group preflight" id="pfPanel" role="region" aria-label="Rig preflight" hidden>
+        <div class="row"><h3 class="label">Rig preflight</h3><span class="pf-state mono" id="pfState"></span></div>
+        <ul class="pf-list" id="pfList"></ul>
+        <p class="hint">Checks the parts, joints and rest pose before you animate. "Needs attention" items do not stop you; each button opens the step that fixes it.</p>
+      </div>
+      <div class="seg an-tabs" id="anTabs" role="group" aria-label="Animation mode">
+        <button type="button" data-tab="manual" aria-pressed="true">Manual</button>
+        <button type="button" data-tab="template" aria-pressed="false">Template Motion</button>
+      </div>
+      <div id="anManual">
+      <p class="hint" id="anMsg" role="status"></p>
+      <div class="row">
+        <label class="field" for="anFacing">this animation faces <select id="anFacing"><option value="right">right</option><option value="left">left</option><option value="front">the viewer</option></select></label>
+        <button id="anIdle" type="button">Make idle</button>
+        <button id="anWalk" type="button">Make walk</button>
+        <button id="anAttack" type="button">Make sword attack</button>
+        <button id="anRun" type="button">Make run</button>
+        <button id="anJump" type="button">Make jump</button>
+        <button id="anHurt" type="button">Make hurt</button>
+        <button id="anDeath" type="button">Make death</button>
+      </div>
+      <p class="hint">Animations move the parts you made: they cannot turn the character round or show sides the image does not have. A walk seen from the front lifts the feet instead of swinging the legs. Edits to the base pose in the editor do not reach animation frames; edit a frame ("This frame") or use step 7.</p>
+      <div class="import-work">
+        <div class="rig-views">
+          <div class="import-view bg-checker" id="anView"><canvas id="anCanvas" width="1" height="1" aria-label="Animation frame preview"></canvas></div>
+          <div class="an-strip" id="anStrip" role="group" aria-label="Animation frames"></div>
+          <div class="row">
+            <button id="anPrev" type="button" aria-label="Previous animation frame">◀</button>
+            <button id="anPlay" type="button">Play</button>
+            <button id="anNext" type="button" aria-label="Next animation frame">▶</button>
+            <label class="field" for="anOnion"><input type="checkbox" id="anOnion" checked> show previous frame</label>
+            <label class="field" for="anMade" title="Tints the pixels of this frame that are not from your image: joint fill, painted hidden areas, alternate drawings, user-made back limbs and smears"><input type="checkbox" id="anMade"> show pixels not from the image</label>
+            <span class="made-legend hint" id="anMadeKey" hidden></span>
+            <p class="hint" id="anMadeNote" role="status"></p>
+          </div>
+        </div>
+        <div class="import-controls">
+          <div class="group">
+            <label class="field wide" for="anName">animation <select id="anName"></select></label>
+            <div class="crop-grid">
+              <label class="field" for="anFrames">frames <input type="number" id="anFrames" min="1" max="64" step="1"></label>
+              <label class="field" for="anFps">fps <input type="number" id="anFps" min="1" max="60" step="1"></label>
+            </div>
+            <label class="field" for="anRetime" title="On: changing the frame count scales the key timing. Off: frames are added or cut at the end."><input type="checkbox" id="anRetime" checked> stretch keys</label>
+            <div class="row"><label class="field" for="anLoop"><input type="checkbox" id="anLoop"> loop</label><label class="field" for="anSmooth" title="Turned parts take their colours from RotSprite: no stray specks; the outline stays the same. On for animations made since V4."><input type="checkbox" id="anSmooth"> smooth turns</label><button id="anDelete" type="button">Delete animation</button></div>
+          </div>
+          <div class="group">
+            <h3 class="label">Key at this frame</h3>
+            <div class="row"><button id="anKeyAdd" type="button">Make key</button><button id="anKeyDel" type="button">Delete key</button>
+              <label class="field" for="anEase">then <select id="anEase"><option value="easeInOut">ease in-out</option><option value="easeIn">ease in (slow start)</option><option value="easeOut">ease out (slow end)</option><option value="linear">linear</option><option value="curve">custom curve</option><option value="step">hold until the next key</option></select></label></div>
+            <div class="row"><label class="field" for="anHold" title="Frames this key's pose is held before the motion to the next key starts">hold <input type="number" id="anHold" min="0" max="63" step="1" style="width:4em"> frames</label>
+              <label class="field" for="anCurve" id="anCurveWrap" hidden title="Cubic Bézier control points x1 y1 x2 y2, as in CSS (x between 0 and 1)">curve <input type="text" id="anCurve" spellcheck="false" style="width:10em"></label></div>
+            <div class="row"><button id="anCopy" type="button">Copy pose</button><button id="anPaste" type="button">Paste pose</button><button id="anMirror" type="button">Mirror L↔R</button></div>
+            <div class="row"><button id="anUndo" type="button">Undo</button><button id="anRedo" type="button">Redo</button></div>
+          </div>
+          <div class="group">
+            <h3 class="label">Pose</h3>
+            <label class="field wide" for="anBone">part <select id="anBone"></select></label>
+            <label class="field wide" for="anRot">turn <input type="range" id="anRot" min="-180" max="180" step="1"><input type="number" id="anRotN" step="0.5" aria-label="Turn in degrees"></label>
+            <div class="crop-grid">
+              <label class="field" for="anOffX">nudge x <input type="number" id="anOffX" step="1"></label>
+              <label class="field" for="anOffY">nudge y <input type="number" id="anOffY" step="1"></label>
+              <label class="field" for="anRootX">body x <input type="number" id="anRootX" step="1"></label>
+              <label class="field" for="anRootY">body y <input type="number" id="anRootY" step="1"></label>
+            </div>
+            <label class="field wide" for="anDrawing">drawing <select id="anDrawing"></select></label>
+            <label class="field wide" for="anOrder" title="From this key until the next key, the chosen part is drawn in front of, or behind, every other part (for an arm that swings across the body). The layer order of step 5 stays the default; the part still moves with its parent.">draw order <select id="anOrder"><option value="">layer order (step 5)</option><option value="front">in front of every part</option><option value="back">behind every part</option></select></label>
+            <label class="field" for="anSmear" title="On this frame only, a copy of the chosen part stretched along its length is drawn behind it: a smear for a fast swing. 1 = no smear. It is user-made, and the frame check says so.">smear <input type="number" id="anSmear" min="1" max="4" step="0.1" style="width:4.5em"> × stretch</label>
+            <p class="hint">Drag on the preview to turn the chosen part around its joint. Nudges are in quarter pixels, but a part that is only nudged, or turned so little that no pixel moves half a pixel, is drawn moved by whole pixels (so it keeps its exact pixels); the whole body moves in whole pixels. Editing a frame between keys makes a key there. A drawing (step 7) replaces the part from this key until the next key.</p>
+            <ul class="hint an-warn" id="anWarn"></ul>
+          </div>
+          <div class="group">
+            <h3 class="label">Secondary motion</h3>
+            <p class="hint">The chosen part (Pose, above) trails behind the parts it hangs from: it also turns by the amount × how far they turned some frames ago. For a cape, hair or a tail. It is added to the part's own keys.</p>
+            <div class="row"><label class="field" for="anFollowDelay">delay <input type="number" id="anFollowDelay" min="1" max="8" step="1" value="2" style="width:4em"> frames</label>
+              <label class="field" for="anFollowAmount">amount <input type="number" id="anFollowAmount" min="0.1" max="2" step="0.1" value="1" style="width:4.5em"></label>
+              <button id="anFollow" type="button">Make it trail</button></div>
+            <ul class="hint" id="anFollowList"></ul>
+          </div>
+          <div class="group" id="anEditedRow" hidden>
+            <h3 class="label">Frames edited by hand</h3>
+            <div class="row" id="anEdited"></div>
+            <button id="anRerender" type="button">Re-render ticked frames from the rig</button>
+            <p class="hint">Edited frames keep their pixels when keys change. Re-rendering replaces them with the rig's frame.</p>
+          </div>
+        </div>
+      </div>
+      </div>
+      <div id="anTemplate" hidden>
+        <p class="hint">Prepared motions for your character's rig: timed poses for its joints, drawn with your own parts by the rig renderer. Nothing is generated or invented. Preview a motion, adjust it, then add it as a new animation that you can edit in Manual.</p>
+        <p class="hint" id="tmMsg" role="status"></p>
+        <div class="tm-work">
+          <div class="group">
+            <h3 class="label">Character preview</h3>
+            <div class="import-view bg-checker"><canvas id="tmChar" width="1" height="1" aria-label="Your character at rest"></canvas></div>
+            <span class="hint mono" id="tmCharInfo"></span>
+            <h3 class="label">Direction</h3>
+            <ul class="tm-dirs" id="tmDirs" aria-label="Directions"></ul>
+            <p class="hint">Each direction is its own image. Add one in Image to pixel art (Direction, at the top); set which way the main image shows there too. Sprite Foundry never rotates, stretches or mirrors a flat picture to make a direction.</p>
+          </div>
+          <div class="group">
+            <h3 class="label">Template motions</h3>
+            <div class="seg" id="tmFilters" role="group" aria-label="Motion category"></div>
+            <div class="tm-cards" id="tmCards"></div>
+            <div class="tm-preview" id="tmPreview" hidden>
+              <div class="group">
+                <h3 class="label" id="tmTitle"></h3>
+                <div class="import-view bg-checker"><canvas id="tmCanvas" width="1" height="1" aria-label="Motion preview on your character"></canvas></div>
+                <div class="row">
+                  <button id="tmPlay" type="button">Play</button>
+                  <input type="range" id="tmScrub" min="0" max="0" step="1" value="0" aria-label="Preview frame">
+                  <span class="hint mono" id="tmFrameLabel"></span>
+                </div>
+                <div class="an-strip" id="tmStrip" role="group" aria-label="Motion frames"></div>
+              </div>
+              <div class="group">
+                <h3 class="label">Motion settings</h3>
+                <label class="field" for="tmFrames">frames <input type="number" id="tmFrames" min="1" max="64" step="1" style="width:4.5em"></label>
+                <label class="field" for="tmFps">speed <input type="number" id="tmFps" min="1" max="60" step="1" style="width:4.5em"> fps</label>
+                <label class="field" for="tmLoop"><input type="checkbox" id="tmLoop"> loop</label>
+                <div class="row"><button id="tmUndo" type="button">Undo</button><button id="tmRedo" type="button">Redo</button><button id="tmReset" type="button">Defaults</button></div>
+                <span class="hint mono" id="tmTiming"></span>
+                <ul class="hint an-warn" id="tmWarn"></ul>
+                <label class="field wide" for="tmName">new animation <input type="text" id="tmName" maxlength="24"></label>
+                <label class="field wide" for="tmAddTo">add to <select id="tmAddTo"><option value="this">this direction</option><option value="all">every direction with artwork</option></select></label>
+                <div class="row"><button id="tmAccept" type="button" class="primary">Add as new animation</button><button id="tmCancel" type="button">Cancel</button></div>
+                <p class="hint">Previewing changes nothing. Adding makes a new animation with ordinary keys; your other animations, the rig and the image stay as they are.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="import-bg" id="artWork" hidden>
+      <div class="tray-head">
+        <h3 class="label">7 · drawings and hidden areas</h3>
+        <span class="hint mono" id="arInfo"></span>
+      </div>
+      <p class="hint" id="arMsg" role="status"></p>
+      <p class="hint">Everything drawn here is yours, not the image's, and the frame check marks frames that show it. Alternate drawings are for poses a rotation cannot make (a fist, a foreshortened arm). The hidden area is what is under a part where another part covers it in the image; it can only be painted there (pink squares), so it never shows at rest.</p>
+      <div class="import-work">
+        <div class="import-view bg-checker"><canvas id="arCanvas" width="1" height="1" aria-label="Drawing editor"></canvas></div>
+        <div class="import-controls">
+          <div class="group">
+            <label class="field wide" for="arPart">part <select id="arPart"></select></label>
+            <label class="field wide" for="arLayer">edit <select id="arLayer"></select></label>
+            <div class="row"><button id="arNew" type="button">New drawing from this part</button></div>
+            <div class="row"><input type="text" id="arRenameTo" maxlength="24" aria-label="Drawing name"><button id="arRename" type="button">Rename</button><button id="arDelete" type="button">Delete drawing</button></div>
+          </div>
+          <div class="group">
+            <div class="seg" role="group" aria-label="Drawing tool">
+              <button id="arPencil" type="button" aria-pressed="true">Pencil</button>
+              <button id="arEraser" type="button" aria-pressed="false">Eraser</button>
+            </div>
+            <div class="ar-swatches" id="arSwatches" role="group" aria-label="Palette"></div>
+            <div class="row"><button id="arUndo" type="button">Undo</button><button id="arRedo" type="button">Redo</button><button id="arClear" type="button">Clear</button></div>
+          </div>
+          <div class="group">
+            <h3 class="label">Hidden area</h3>
+            <div class="row">
+              <button id="arAuto" type="button">Fill automatically</button>
+              <label class="field" for="arAutoMethod">with <select id="arAutoMethod"><option value="auto">OpenCV if loaded, else nearest colour</option><option value="opencv">OpenCV inpaint</option><option value="local">nearest colour</option></select></label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Variations">
+    <div class="tray-head">
+      <h2 class="label">Variations · click one to load it</h2>
+      <button id="batchBtn" type="button">New batch</button>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+  </section>
+
+  <section class="panel workshop" id="workshop" aria-label="2.5D Sprite Workshop" hidden>
+    <h2 class="label">2.5D Sprite Workshop · draw one sprite by hand, frame by frame</h2>
+    <p class="hint">A flat pixel-art sprite drawn at an angle to look three-dimensional. It is not a 3D model: each view is drawn by hand. Separate from the generator and the image import: nothing here changes them.</p>
+    <div id="wsStart" class="ws-row">
+      <label class="field" for="wsSize">Sprite size <select id="wsSize"></select></label>
+      <button id="wsCreate" type="button" class="primary">New sprite</button>
+      <label class="file-btn" for="wsAseOpen">Open .aseprite<input type="file" id="wsAseOpen" accept=".aseprite,.ase" hidden></label>
+    </div>
+    <div id="wsWork" hidden>
+      <div class="ws-row">
+        <span id="wsInfo" class="hint mono"></span>
+        <button id="wsUndo" type="button">Undo</button>
+        <button id="wsRedo" type="button">Redo</button>
+        <label class="file-btn" for="wsAseOpen2">Open .aseprite<input type="file" id="wsAseOpen2" accept=".aseprite,.ase" hidden></label>
+      </div>
+      <div class="ws-edit">
+        <div class="ws-main">
+          <div class="ws-row" id="wsClipBar">
+            <label class="field" for="wsAnim">Animation <select id="wsAnim"></select></label>
+            <button id="wsAnimNew" type="button">New</button><button id="wsAnimRename" type="button">Rename</button><button id="wsAnimDel" type="button">Remove</button>
+            <label class="field" for="wsDirs">Directions <select id="wsDirs"><option value="1">1</option><option value="4">4 (S, E, N, W)</option><option value="8">8</option></select></label>
+            <div class="seg" id="wsDirTabs" role="group" aria-label="Direction" hidden></div>
+            <button id="wsMirrorDir" type="button" title="Your drawing of this direction, flipped left to right, becomes the opposite direction (marked mirrored by you)" hidden>Mirror</button>
+            <span class="hint" id="wsMirrorNote"></span>
+          </div>
+          <div class="ws-strip ws-views" id="wsViews" role="group" aria-label="This frame in every direction" hidden></div>
+          <div class="ws-stage"><canvas id="wsCanvas" width="1" height="1" aria-label="Sprite canvas: draw with the chosen tool"></canvas></div>
+          <div class="live-preview" id="wsLive" role="group" aria-label="Workshop live preview" hidden>
+            <div class="live-box bg-checker"><canvas id="wsLiveCanvas" width="1" height="1" aria-label="Live preview of the animation"></canvas></div>
+            <span class="hint">Live preview: keeps playing while you draw.</span>
+            <button id="wsLivePlay" type="button">Pause</button>
+            <label class="field" for="wsLiveScale">size <select id="wsLiveScale"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+          </div>
+          <div class="live-preview" id="wsRotPreview" role="group" aria-label="Workshop rotation preview" hidden>
+            <div class="live-box bg-checker"><canvas id="wsRotCanvas" width="1" height="1" aria-label="Every direction playing the same animation"></canvas></div>
+            <span class="hint">Rotation preview: every direction with its own artwork, in step.</span>
+            <button id="wsRotPlay" type="button">Pause</button>
+            <label class="field" for="wsRotLayout">layout <select id="wsRotLayout"><option value="circle">around</option><option value="row">in a row</option></select></label>
+          </div>
+          <div class="ws-frames">
+            <div class="ws-row">
+              <button id="wsPlay" type="button" class="primary">Play</button>
+              <label class="ws-check" for="wsLoop"><input type="checkbox" id="wsLoop"> loop</label>
+              <label class="field" for="wsMode">plays <select id="wsMode"><option value="forward">forward</option><option value="reverse">reverse</option><option value="pingpong">ping-pong</option><option value="pingpongReverse">ping-pong from the end</option></select></label>
+              <label class="field" for="wsRepeat" title="How many times an animation that does not loop plays">× <input type="number" id="wsRepeat" min="1" max="99" step="1" style="width:3.5em"></label>
+              <label class="field" for="wsFps">FPS <input type="number" id="wsFps" min="1" max="60" step="1" style="width:4.5em"></label>
+              <label class="ws-check" for="wsOnion"><input type="checkbox" id="wsOnion"> onion skin</label>
+              <label class="ws-check" for="wsOnionNext"><input type="checkbox" id="wsOnionNext"> next frame too</label>
+              <label class="field" for="wsOnionBack" title="Frames shown before this one">back <select id="wsOnionBack"><option>1</option><option>2</option><option>3</option></select></label>
+              <label class="field" for="wsOnionAhead" title="Frames shown after this one (with next frame too)">ahead <select id="wsOnionAhead"><option>1</option><option>2</option><option>3</option></select></label>
+              <label class="field" for="wsOnionTint">tint <select id="wsOnionTint"><option value="none">none</option><option value="redblue">red / blue</option></select></label>
+              <label class="field" for="wsOnionOpacity">opacity <input type="range" id="wsOnionOpacity" min="0.1" max="0.9" step="0.05" style="width:5em"></label>
+            </div>
+            <div class="ws-strip" id="wsStrip" role="group" aria-label="Frames"></div>
+            <div class="ws-row">
+              <button id="wsFrameAdd" type="button">Add frame</button>
+              <button id="wsFrameDup" type="button">Duplicate</button>
+              <button id="wsFrameLink" type="button" title="A linked copy: drawing on either frame changes both">Linked copy</button>
+              <button id="wsFrameUnlink" type="button" title="Give this frame its own copy of the picture">Unlink</button>
+              <button id="wsFrameDel" type="button">Delete frame</button>
+              <button id="wsFrameLeft" type="button" aria-label="Move frame left">◀ Move</button>
+              <button id="wsFrameRight" type="button" aria-label="Move frame right">Move ▶</button>
+              <label class="field" for="wsDur">Frame time <input type="number" id="wsDur" min="10" max="10000" step="10" placeholder="auto" style="width:6em"> ms</label>
+              <span class="hint mono" id="wsDurInfo"></span>
+            </div>
+          </div>
+        </div>
+        <div class="ws-side">
+          <div class="seg" id="wsTools" role="group" aria-label="Tool"></div>
+          <div class="ws-row" id="wsToolOpts">
+            <label class="ws-check" for="wsPerfect" title="Pencil and eraser drop the middle pixel of each L-shaped corner, so curves stay one pixel thin"><input type="checkbox" id="wsPerfect"> pixel-perfect</label>
+            <label class="ws-check" for="wsSnap" title="Lines snap to flat, 2:1 (isometric), 1:1, 1:2 or upright"><input type="checkbox" id="wsSnap" checked> snap lines to 2:1</label>
+            <label class="ws-check" for="wsFilled"><input type="checkbox" id="wsFilled"> filled rectangle</label>
+            <label class="field" for="wsDither">dither <select id="wsDither"><option value="25">25%</option><option value="50" selected>50%</option><option value="75">75%</option></select></label>
+            <label class="ws-check" for="wsBrushDither" title="The brush sets only the dither pattern's pixels"><input type="checkbox" id="wsBrushDither"> dither the brush</label>
+            <label class="field" for="wsMirror">mirror <select id="wsMirror"><option value="off">off</option><option value="vertical">left ↔ right</option><option value="horizontal">top ↔ bottom</option><option value="both">both</option></select></label>
+          </div>
+          <div class="ws-row" id="wsSelRow">
+            <button id="wsCopy" type="button">Copy</button><button id="wsCut" type="button">Cut</button><button id="wsPaste" type="button">Paste</button>
+            <button id="wsFlipH" type="button" aria-label="Flip the selection left to right">Flip ↔</button><button id="wsFlipV" type="button" aria-label="Flip the selection top to bottom">Flip ↕</button>
+            <button id="wsDeselect" type="button">Deselect</button>
+            <button id="wsSelOut" type="button" title="Outline pixels of the current colour on this layer take a darker shade of the colour inside them">Sel-out</button>
+            <button id="wsMakeBrush" type="button" title="The selected pixels of this layer become the Brush tool's stamp">Brush from selection</button>
+          </div>
+          <p class="hint" id="wsBrushInfo">Brush: none yet. Select pixels, then Brush from selection; the Brush tool (K) stamps them, held at their centre, with the mirror and, if ticked, the dither.</p>
+          <p class="hint">Select drags a rectangle; drag inside it to move its pixels. Copy and Paste work across frames (the selection's layer). Sel-out turns a flat outline of the current colour into darker shades of what it encloses.</p>
+          <div class="ws-row">
+            <button id="wsZoomOut" type="button" aria-label="Zoom out">−</button>
+            <label class="field" for="wsZoom">Zoom <select id="wsZoom"></select></label>
+            <button id="wsZoomIn" type="button" aria-label="Zoom in">+</button>
+          </div>
+          <div class="ws-row">
+            <label class="ws-check" for="wsGrid"><input type="checkbox" id="wsGrid"> pixel grid</label>
+            <label class="ws-check" for="wsIso"><input type="checkbox" id="wsIso"> isometric guide (2:1)</label>
+          </div>
+          <div class="ws-row">
+            <label class="field" for="wsLight">Light from <select id="wsLight"></select></label>
+          </div>
+          <p class="hint">Highlight lightens and Shadow darkens each pixel one step, to the next colour of its ramp in the palette. Light the sides that face the sun marker; shade the sides away from it.</p>
+          <h3>Reference image</h3>
+          <div class="ws-row">
+            <label for="wsRefFile" style="display:block;max-width:100%">Image to trace<br><input type="file" id="wsRefFile" accept="image/png,image/jpeg,image/webp,image/gif" style="max-width:100%"></label>
+          </div>
+          <div class="ws-row" id="wsRefControls" hidden>
+            <label class="ws-check" for="wsRefShow"><input type="checkbox" id="wsRefShow"> show</label>
+            <label class="field" for="wsRefOpacity">Opacity <input type="range" id="wsRefOpacity" min="0.05" max="1" step="0.05"></label>
+            <label class="field" for="wsRefX">X <input type="number" id="wsRefX" step="1" min="-512" max="512" style="width:4.5em"></label>
+            <label class="field" for="wsRefY">Y <input type="number" id="wsRefY" step="1" min="-512" max="512" style="width:4.5em"></label>
+            <label class="field" for="wsRefScale">Scale <input type="number" id="wsRefScale" step="0.05" min="0.1" max="8" style="width:4.5em"></label>
+            <button id="wsRefRemove" type="button">Remove</button>
+          </div>
+          <p class="hint" id="wsRefInfo">An image shown under your drawing to trace over. It is saved with the project and never drawn into frames or exported.</p>
+          <h3>Layers (drawn back to front)</h3>
+          <div id="wsLayers"></div>
+          <div class="ws-row"><input type="text" id="wsLayerName" placeholder="new layer name" maxlength="24" aria-label="New layer name" style="width:10em"><button id="wsLayerAdd" type="button">Add layer</button></div>
+          <p class="hint" id="wsLayerInfo"></p>
+          <h3>Palette</h3>
+          <div class="ws-row"><span class="ws-current" id="wsCurrent"></span><span class="hint mono" id="wsCurrentLabel"></span></div>
+          <div class="swatches" id="wsSwatches"></div>
+          <div class="ws-row">
+            <input type="color" id="wsColour" aria-label="Colour to add or change to">
+            <button id="wsColourAdd" type="button">Add</button>
+            <button id="wsColourSet" type="button">Change selected</button>
+            <button id="wsColourDel" type="button">Remove selected</button>
+          </div>
+          <div class="ws-row">
+            <label class="field" for="wsPalPreset">Palette <select id="wsPalPreset"></select></label>
+            <button id="wsPalLoad" type="button">Use palette</button>
+          </div>
+          <div class="ws-row">
+            <label class="file-btn" for="wsPalFile">Open palette file<input type="file" id="wsPalFile" accept=".gpl,.pal,.hex,.txt" hidden></label>
+            <select id="wsPalFormat" aria-label="Palette file format"><option value="gpl">GIMP .gpl</option><option value="pal">JASC .pal</option><option value="hex">.hex list</option></select>
+            <button id="wsPalSave" type="button">Save palette</button>
+          </div>
+          <div class="ws-row" role="group" aria-label="Ramp builder">
+            <span class="label">Ramp</span>
+            <input type="color" id="wsRampBase" aria-label="Ramp base colour" value="#3a7bd5">
+            <label class="field" for="wsRampSteps">steps <select id="wsRampSteps"><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></label>
+            <label class="field" for="wsRampShift" title="How far the hue turns per step: warm when lighter, cool when darker">hue shift <input type="range" id="wsRampShift" min="0" max="40" step="1" value="12" style="width:5em"></label>
+            <span class="swatches ramp-preview" id="wsRampPreview" aria-label="Ramp preview"></span>
+            <button id="wsRampAdd" type="button">Add ramp</button>
+          </div>
+          <h3><label for="wsVarShown">Colour variants</label></h3>
+          <div class="ws-row"><select id="wsVarShown" aria-label="Colour variant shown"></select></div>
+          <div class="ws-row">
+            <input type="text" id="wsVarName" placeholder="red_team" maxlength="24" aria-label="Variant name" style="width:9em" spellcheck="false">
+            <button id="wsVarAdd" type="button">Add variant</button>
+            <button id="wsVarRename" type="button" aria-label="Rename variant">Rename</button>
+            <button id="wsVarDel" type="button" aria-label="Remove variant">Remove</button>
+          </div>
+          <div class="var-map" id="wsVarMap" role="group" aria-label="New colours of this variant"></div>
+          <p class="hint" id="wsVarHint"></p>
+          <div class="ws-row" role="group" aria-label="Replace the current colour">
+            <span>Replace the current colour with</span>
+            <input type="color" id="wsReplaceTo" aria-label="Replacement colour" value="#ffffff">
+            <select id="wsReplaceScope" aria-label="Where to replace"><option value="frame">in this frame</option><option value="anim">in this animation</option><option value="all">in every animation</option></select>
+            <button id="wsReplace" type="button">Replace</button>
+          </div>
+          <p class="hint">Keys: B pencil, E eraser, G fill, I eyedropper, H highlight, S shadow, Ctrl+Z undo, Ctrl+Y redo. Changing the palette never repaints pixels already drawn.</p>
+        </div>
+      </div>
+      <div class="ws-export" id="wsRigSend">
+        <h3>Animate with the rig</h3>
+        <div class="ws-row">
+          <button id="wsToRig" type="button">Use this frame in Image to pixel art</button>
+          <span class="hint" id="wsToRigInfo"></span>
+        </div>
+        <p class="hint">Sends the frame shown (every layer, as drawn) to Sprite Foundry's Image to pixel art as a new image: its pixels are kept one for one (conversion "exact", the palette locked to its colours). Then press Use as sprite in step 3, mark the body parts and joints (steps 4–5), and Template Motion (step 6) can animate your drawing. The drawing here is not changed.</p>
+      </div>
+      <div class="ws-export" id="wsExport">
+        <h3>Export sprite sheet (transparent background)</h3>
+        <div class="ws-row">
+          <label class="field" for="wsExName">Name <input type="text" id="wsExName" maxlength="32" style="width:9em"></label>
+          <label class="field" for="wsExCellW">Cell <input type="number" id="wsExCellW" min="8" max="512" step="1"></label>
+          <label class="field" for="wsExCellH">× <input type="number" id="wsExCellH" min="8" max="512" step="1"></label>
+          <label class="field" for="wsExCols">Columns <input type="number" id="wsExCols" min="0" max="64" step="1"></label>
+          <label class="field" for="wsExSpacing">Spacing <input type="number" id="wsExSpacing" min="0" max="64" step="1"></label>
+          <label class="field" for="wsExMargin">Margin <input type="number" id="wsExMargin" min="0" max="64" step="1"></label>
+          <label class="field" for="wsExScale">Scale <select id="wsExScale"></select></label>
+        </div>
+        <p class="hint">Columns 0 puts every frame in one row. Each frame sits in its cell centred, feet on the bottom row (the pivot is the bottom centre). All three layers are exported, also ones hidden in the editor.</p>
+        <h3>UI slices</h3>
+        <div class="ws-row">
+          <input type="text" id="wsSliceName" placeholder="slice name" maxlength="24" aria-label="New slice name" style="width:9em">
+          <button id="wsSliceAdd" type="button">Add slice from selection</button>
+        </div>
+        <div id="wsSlices"></div>
+        <p class="hint" id="wsSliceInfo">A slice names a rectangle of the sprite (a button, a panel). Insets make it a 9-slice: the corners stay as drawn, the edges and the middle stretch. Slices go into the JSON (meta.slices) and each becomes a Godot StyleBoxTexture (.tres) in the ZIP.</p>
+        <div class="ws-sheet-wrap"><canvas id="wsSheet" width="1" height="1" aria-label="Sprite sheet preview"></canvas></div>
+        <div class="ws-row">
+          <span class="hint mono" id="wsExInfo"></span>
+          <button id="wsSavePng" type="button" class="primary">Save PNG</button>
+          <button id="wsSaveJson" type="button">Save JSON</button>
+          <button id="wsSaveZip" type="button">Save ZIP (PNG, JSON, README)</button>
+          <button id="wsSaveAse" type="button" title="Layers, animations, frame times, palette and linked frames, for Aseprite">Save .aseprite</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint" id="wsMsg" role="status"></p>
+  </section>
+</div>
+<aside class="help" id="helpPanel" role="dialog" aria-modal="false" aria-labelledby="helpTitle" hidden>
+  <div class="help-head">
+    <h2 id="helpTitle">Help &amp; Tutorials</h2>
+    <button id="helpClose" type="button" aria-label="Close help">✕</button>
+  </div>
+  <input type="search" id="helpSearch" placeholder="Search help (for example: joints, export, onion)" aria-label="Search help" autocomplete="off">
+  <div class="help-where" id="helpWhere"></div>
+  <div class="seg help-tabs" id="helpTabs" role="tablist" aria-label="Help sections">
+    <button type="button" role="tab" data-tab="tutorials" aria-selected="true">Tutorials</button>
+    <button type="button" role="tab" data-tab="manual" aria-selected="false">Manual</button>
+    <button type="button" role="tab" data-tab="glossary" aria-selected="false">Glossary &amp; limits</button>
+  </div>
+  <div class="help-body" id="helpBody" role="tabpanel" aria-labelledby="helpTitle" tabindex="-1"></div>
+  <p class="hint">Help only explains and points: it never changes your sprite. Esc closes it.</p>
+</aside>
+<div class="guard" id="guard" role="alertdialog" aria-labelledby="guardText" hidden>
+  <p id="guardText"></p>
+  <div class="row">
+    <button id="guardSave" type="button" class="primary">Save project first</button>
+    <button id="guardGo" type="button">Discard edits and continue</button>
+    <button id="guardCancel" type="button">Cancel</button>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+"use strict";
+(() => {
