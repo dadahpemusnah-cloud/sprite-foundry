@@ -1,6 +1,6 @@
 # Sprite Foundry — V6 plan (draft)
 
-Status: **in progress** (stages 0–5 done; V6.0 walk feature complete, not yet republished). Written 2026-10-22.
+Status: **in progress** (stages 0–5 done; V6.0 published 2026-10-22 as artifact version 1792658599-d857; next: stage 6, Unity cutout = V6.1). Written 2026-10-22.
 Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
 "Auto Animate — four-direction walk" request.
 
@@ -26,8 +26,11 @@ Combines the earlier V6 draft (Unity cutout, fixes, V5 test follow-ups) with the
   and saved with projects. `tests/phaser-walk.mjs` loads the exported atlas in Phaser 3.90.0 (and
   passes with 4.2.1): 12 frames in sheet order, 1.2 s loops, looping when played as the export README
   says (createFromAseprite itself sets no repeat; the README already covered that).
-- Noted for stage 7: the page is 5 px wider than a 390 px phone screen (export preset menu and
-  some canvases); this predates V6.
+- **Release prep done**: the page fits a 390 px phone screen again (`tests/phone-width.mjs`; the
+  5 px overflow predated V6 and the new direction-names menu made it worse), help covers Auto
+  Animate and direction names (`tests/help-links.mjs`), full regression green.
+- **V6.0 published** to the live artifact (version 1792658599-d857). The published page was read
+  back and equals `index.html` except for one blank line the publishing wrapper adds before `</body>`.
 
 ## Basis
 
